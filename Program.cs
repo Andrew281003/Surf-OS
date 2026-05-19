@@ -14,6 +14,7 @@ namespace SurfOS2
             Console.OutputEncoding = Encoding.UTF8;
             Core_Engine.MaximizeWindow();
 
+
             string desktopPath = Path.Combine("C:\\Users", Import.Variables.machineName, "Desktop", "SurfOS");
             string documentsPath = Path.Combine("C:\\Users", Import.Variables.machineName, "Documents", "SurfOS");
             string rootPath = "C:\\SurfOS";
@@ -33,7 +34,6 @@ namespace SurfOS2
             {
                 Install_Setup.Install_WizardP1();
             }
-
             Console.ReadLine();
         }
 
