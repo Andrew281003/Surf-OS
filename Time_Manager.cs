@@ -1,4 +1,5 @@
-﻿using System.Text.Json;
+﻿using System.Runtime.Versioning;
+using System.Text.Json;
 
 namespace SurfOS2
 {
@@ -108,7 +109,7 @@ namespace SurfOS2
         // =========================================================================
         // 🌟 FIX: Tell the compiler this method uses Windows-specific audio features
         // =========================================================================
-        [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+        [SupportedOSPlatform("windows")]
         public static void StartAlarmDaemon()
         {
             Task.Run(() =>

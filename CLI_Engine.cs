@@ -1,11 +1,14 @@
 ﻿using System.Diagnostics;
 using System.Net.NetworkInformation;
+using System.Runtime.Versioning;
 using System.Text.Json;
+
 
 namespace SurfOS2
 {
     internal class CLI_Engine
     {
+        [SupportedOSPlatform("windows")]
         public static void StartTerminal()
         {
             Console.Clear();

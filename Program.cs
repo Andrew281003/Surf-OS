@@ -1,9 +1,6 @@
-﻿using System;
-using System.IO;
+﻿using System.Text;
 using System.Text.Json;
-using System.Collections.Generic;
-using System.Text.Unicode;
-using System.Text;
+using System.Runtime.Versioning;
 
 namespace SurfOS2
 {
@@ -14,6 +11,8 @@ namespace SurfOS2
             Console.OutputEncoding = Encoding.UTF8;
             Core_Engine.MaximizeWindow();
 
+            Cloud_Manager.InitializeCloud();
+            Cloud_Manager.DB.Collection("test_pings").Document("Andrew").SetAsync(new { Timestamp = DateTime.UtcNow, Status = "Online" }).Wait();
 
             string desktopPath = Path.Combine("C:\\Users", Import.Variables.machineName, "Desktop", "SurfOS");
             string documentsPath = Path.Combine("C:\\Users", Import.Variables.machineName, "Documents", "SurfOS");
@@ -34,7 +33,7 @@ namespace SurfOS2
             {
                 Install_Setup.Install_WizardP1();
             }
-            Console.ReadLine();
+                Console.ReadLine();
         }
 
         public static void LoadSettings(string filePath)
