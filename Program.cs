@@ -1,94 +1,115 @@
-﻿using System.Text;
-using System.Text.Json;
 using System.Runtime.Versioning;
+using System.Text;
+using System.Text.Json;
 
-namespace SurfOS2
+namespace SurfOS2;
+
+[SupportedOSPlatform("windows")]
+internal class Program
 {
-    internal class Program
+    public static void Main()
     {
-        public static void Main()
+        Console.OutputEncoding = Encoding.UTF8;
+        RetroConsole.Initialize();
+        Core_Engine.MaximizeWindow();
+        RetroConsole.BootSequence();
+        Cloud_Manager.StartInBackground();
+
+        string desktopPath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
+            "SurfOS");
+        string documentsPath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+            "SurfOS");
+
+        string? targetPath = new[] { desktopPath, documentsPath, @"C:\SurfOS" }
+            .FirstOrDefault(IsSurfOsInstallation);
+
+        if (targetPath is null)
         {
-            Console.OutputEncoding = Encoding.UTF8;
-            Core_Engine.MaximizeWindow();
-
-            Cloud_Manager.InitializeCloud();
-            Cloud_Manager.DB.Collection("test_pings").Document("Andrew").SetAsync(new { Timestamp = DateTime.UtcNow, Status = "Online" }).Wait();
-
-            string desktopPath = Path.Combine("C:\\Users", Import.Variables.machineName, "Desktop", "SurfOS");
-            string documentsPath = Path.Combine("C:\\Users", Import.Variables.machineName, "Documents", "SurfOS");
-            string rootPath = "C:\\SurfOS";
-
-            string targetPath = "";
-
-            if (File.Exists(Path.Combine(desktopPath, "installer_feedback.json"))) targetPath = desktopPath;
-            else if (File.Exists(Path.Combine(documentsPath, "installer_feedback.json"))) targetPath = documentsPath;
-            else if (File.Exists(Path.Combine(rootPath, "installer_feedback.json"))) targetPath = rootPath;
-
-            if (!string.IsNullOrEmpty(targetPath))
-            {
-                string optionsFile = Path.Combine(targetPath, "options.json");
-                LoadSettings(optionsFile);
-            }
-            else
-            {
-                Install_Setup.Install_WizardP1();
-            }
-                Console.ReadLine();
+            Install_Setup.Install_WizardP1();
+            return;
         }
 
-        public static void LoadSettings(string filePath)
+        LoadSettings(Path.Combine(targetPath, "options.json"));
+    }
+
+    private static bool IsSurfOsInstallation(string path)
+    {
+        return File.Exists(Path.Combine(path, "installer_feedback.json"));
+    }
+
+    public static void LoadSettings(string filePath)
+    {
+        if (!File.Exists(filePath))
         {
-            if (!File.Exists(filePath))
+            Console.WriteLine("Error: options.json is missing! 🚨");
+            return;
+        }
+
+        try
+        {
+            Import.SystemOptions? options = JsonStorage.Read<Import.SystemOptions>(filePath);
+            if (options is not null)
             {
-                Console.WriteLine("Error: options.json is missing! 🚨");
+                Import.Variables.numRun = options.NumRun + 1;
+                Import.Variables.packageOption = options.PackageOption;
+                Import.Variables.uuid = options.Uuid;
+                Import.Variables.userName = options.UserName ?? string.Empty;
+                Import.Variables.installPath = options.InstallPath ?? string.Empty;
+                Import.Variables.defaultTheme =
+                    string.IsNullOrEmpty(options.DefaultTheme) ? "HolySurf" : options.DefaultTheme;
+                Import.Variables.timeZone =
+                    string.IsNullOrEmpty(options.TimeZone) ? "Local" : options.TimeZone;
+
+                options.NumRun = Import.Variables.numRun;
+                JsonStorage.Write(filePath, options);
+                string? newRecoveryCode =
+                    Recovery_Manager.EnsureConfigured(options, filePath);
+
+                if (newRecoveryCode is not null)
+                {
+                    Recovery_Manager.DisplayRecoveryCode(newRecoveryCode);
+                }
+            }
+
+            LoadUserDatabase(Path.Combine(
+                Path.GetDirectoryName(filePath) ?? string.Empty,
+                "database.json"));
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error reading OS files! ({ex.Message}) 🚨");
+            return;
+        }
+
+        Login_Manager.ShowLoginScreen();
+    }
+
+    private static void LoadUserDatabase(string databasePath)
+    {
+        if (!File.Exists(databasePath))
+        {
+            return;
+        }
+
+        try
+        {
+            Import.Variables.userDatabase =
+                JsonStorage.Read<List<Import.DatabaseRecord>>(databasePath) ?? [];
+        }
+        catch (JsonException)
+        {
+            Import.DatabaseRecord? oldRecord =
+                JsonStorage.Read<Import.DatabaseRecord>(databasePath);
+
+            if (oldRecord is null)
+            {
                 return;
             }
 
-            try
-            {
-                string jsonString = File.ReadAllText(filePath);
-                var options = JsonSerializer.Deserialize<Import.SystemOptions>(jsonString);
-
-                if (options != null)
-                {
-                    Import.Variables.numRun = options.NumRun + 1;
-                    Import.Variables.packageOption = options.PackageOption;
-                    Import.Variables.uuid = options.Uuid;
-                    Import.Variables.userName = options.UserName ?? string.Empty;
-                    Import.Variables.installPath = options.InstallPath ?? string.Empty;
-                    Import.Variables.defaultTheme = string.IsNullOrEmpty(options.DefaultTheme) ? "HolySurf" : options.DefaultTheme;
-                    Import.Variables.timeZone = string.IsNullOrEmpty(options.TimeZone) ? "Local" : options.TimeZone;
-
-                    options.NumRun = Import.Variables.numRun;
-                    File.WriteAllText(filePath, JsonSerializer.Serialize(options, new JsonSerializerOptions { WriteIndented = true }));
-                }
-
-                string dbPath = Path.Combine(Path.GetDirectoryName(filePath) ?? string.Empty, "database.json");
-                if (File.Exists(dbPath))
-                {
-                    string dbString = File.ReadAllText(dbPath);
-                    try
-                    {
-                        Import.Variables.userDatabase = JsonSerializer.Deserialize<List<Import.DatabaseRecord>>(dbString) ?? new List<Import.DatabaseRecord>();
-                    }
-                    catch
-                    {
-                        var oldDb = JsonSerializer.Deserialize<Import.DatabaseRecord>(dbString);
-                        if (oldDb != null)
-                        {
-                            Import.Variables.userDatabase.Add(oldDb);
-                            File.WriteAllText(dbPath, JsonSerializer.Serialize(Import.Variables.userDatabase, new JsonSerializerOptions { WriteIndented = true }));
-                        }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error reading OS files! ({ex.Message}) 🚨");
-                return;
-            }
-
-            Login_Manager.ShowLoginScreen();
+            Import.Variables.userDatabase = [oldRecord];
+            JsonStorage.Write(databasePath, Import.Variables.userDatabase);
         }
     }
 }

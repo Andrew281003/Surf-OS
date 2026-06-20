@@ -1,20 +1,29 @@
 ﻿using System.Diagnostics;
 using System.Net.NetworkInformation;
 using System.Runtime.Versioning;
-using System.Text.Json;
 
 
 namespace SurfOS2
 {
     internal class CLI_Engine
     {
+        private static readonly IReadOnlyDictionary<string, int> ShopCatalog =
+            new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["VIP"] = 200,
+                ["Hacker"] = 500,
+                ["Coder"] = 800,
+                ["SysAdmin"] = 1500
+            };
+
         [SupportedOSPlatform("windows")]
         public static void StartTerminal()
         {
             Console.Clear();
             Time_Manager.StartAlarmDaemon();
             Screen_Print.Print_Selected_Package();
-            Console.WriteLine("\nType 'help' to see a list of commands.");
+            RetroConsole.TypeLine("\nCOMMAND PROCESSOR READY", 4);
+            RetroConsole.TypeLine("Type 'help' to see a list of commands.", 2);
 
             bool isRunning = true;
 
@@ -32,7 +41,7 @@ namespace SurfOS2
                 else
                 {
                     // Dynamic prompt using your earned shop title/rank!
-                    var profile = Import.Variables.userDatabase.Find(u => u.Username.Equals(Import.Variables.userName, StringComparison.OrdinalIgnoreCase));
+                    Import.DatabaseRecord? profile = GetCurrentUser();
                     string rankLabel = (profile != null && profile.CurrentRank != "User") ? $"[{profile.CurrentRank}] " : "";
                     Console.Write($"\n{rankLabel}{Import.Variables.userName}@SurfOS> ");
                 }
@@ -53,7 +62,7 @@ namespace SurfOS2
             bool isSudo = false;
             int cmdIndex = 0;
 
-            if (commandParts[0].ToLower() == "sudo")
+            if (commandParts[0].Equals("sudo", StringComparison.OrdinalIgnoreCase))
             {
                 isSudo = true;
                 if (commandParts.Length == 1)
@@ -64,7 +73,11 @@ namespace SurfOS2
                 cmdIndex = 1;
             }
 
-            string mainCommand = commandParts[cmdIndex].ToLower();
+            string mainCommand = commandParts[cmdIndex].ToLowerInvariant();
+            using IDisposable? commandOutputAnimation =
+                UsesInteractiveScreen(mainCommand)
+                    ? null
+                    : RetroConsole.BeginCommandOutput();
 
             switch (mainCommand)
             {
@@ -75,6 +88,20 @@ namespace SurfOS2
                 case "clear":
                     Console.Clear();
                     Screen_Print.Print_Selected_Package();
+                    break;
+
+                case "cleart":
+                    if (commandParts.Length > cmdIndex + 1 &&
+                        int.TryParse(commandParts[cmdIndex + 1], out int clearDelay) &&
+                        clearDelay >= 0)
+                    {
+                        Console.Clear();
+                        DrawHeader();
+                        Thread.Sleep(TimeSpan.FromSeconds(clearDelay));
+                        Console.Clear();
+                        Screen_Print.Print_Selected_Package();
+                    }
+                    else Console.WriteLine("Usage: clearT <time>");
                     break;
 
                 case "fontsize":
@@ -89,6 +116,11 @@ namespace SurfOS2
 
                 case "info":
                     ShowSystemInfo();
+                    break;
+
+                case "anim":
+                case "animations":
+                    ConfigureAnimations(commandParts, cmdIndex);
                     break;
 
                 // 🌟 NEW APP: System & Specs Monitor (Neofetch style!)
@@ -133,7 +165,7 @@ namespace SurfOS2
                     break;
 
                 case "whoami":
-                    var currentProfile = Import.Variables.userDatabase.Find(u => u.Username.Equals(Import.Variables.userName, StringComparison.OrdinalIgnoreCase));
+                    Import.DatabaseRecord? currentProfile = GetCurrentUser();
                     Console.WriteLine($"Current User: {Import.Variables.userName}");
                     Console.WriteLine($"Rank/Status : {currentProfile?.CurrentRank ?? "User"}");
                     Console.WriteLine($"Wallet      : {currentProfile?.SurfCoins ?? 0} SurfCoins 🪙");
@@ -147,7 +179,7 @@ namespace SurfOS2
                         string host = commandParts[cmdIndex + 1];
                         try
                         {
-                            Ping pingSender = new Ping();
+                            using Ping pingSender = new();
                             Console.WriteLine($"Pinging {host} with 32 bytes of data...");
                             PingReply reply = pingSender.Send(host, 2000);
                             if (reply.Status == IPStatus.Success)
@@ -179,7 +211,9 @@ namespace SurfOS2
                 case "user":
                     {
                         // If they typed just "user", default the action to "list" so it doesn't stay blank!
-                        string action = (commandParts.Length > cmdIndex + 1) ? commandParts[cmdIndex + 1].ToLower() : "list";
+                        string action = commandParts.Length > cmdIndex + 1
+                            ? commandParts[cmdIndex + 1].ToLowerInvariant()
+                            : "list";
 
                         // ACTION: ADD USER
                         if (action == "add")
@@ -195,7 +229,7 @@ namespace SurfOS2
                                 string newName = commandParts[cmdIndex + 2];
                                 string newPass = commandParts[cmdIndex + 3];
 
-                                if (Import.Variables.userDatabase.Exists(u => u.Username.ToLower() == newName.ToLower()))
+                                if (FindUser(newName) is not null)
                                 {
                                     Console.WriteLine($"User '{newName}' already exists.");
                                 }
@@ -235,13 +269,18 @@ namespace SurfOS2
                                 }
 
                                 string targetName = commandParts[cmdIndex + 2];
-                                if (targetName.ToLower() == Import.Variables.userName.ToLower())
+                                if (targetName.Equals(
+                                    Import.Variables.userName,
+                                    StringComparison.OrdinalIgnoreCase))
                                 {
                                     Console.WriteLine("🚨 Safety Lock: You cannot delete your own account while logged into it!");
                                 }
                                 else
                                 {
-                                    int removed = Import.Variables.userDatabase.RemoveAll(u => u.Username.ToLower() == targetName.ToLower());
+                                    int removed = Import.Variables.userDatabase.RemoveAll(
+                                        user => user.Username.Equals(
+                                            targetName,
+                                            StringComparison.OrdinalIgnoreCase));
                                     if (removed > 0)
                                     {
                                         SaveUserDatabase();
@@ -286,7 +325,7 @@ namespace SurfOS2
                 case "theme":
                     if (commandParts.Length > cmdIndex + 1)
                     {
-                        string action = commandParts[cmdIndex + 1].ToLower();
+                        string action = commandParts[cmdIndex + 1].ToLowerInvariant();
                         if (action == "load" && commandParts.Length > cmdIndex + 2)
                         {
                             Screen_Print.LoadAndApplyTheme(commandParts[cmdIndex + 2], isSudo);
@@ -318,13 +357,13 @@ namespace SurfOS2
                                 string optionsFile = Path.Combine(Import.Variables.installPath, "options.json");
                                 if (File.Exists(optionsFile))
                                 {
-                                    string jsonString = File.ReadAllText(optionsFile);
-                                    var options = JsonSerializer.Deserialize<Import.SystemOptions>(jsonString);
-                                    if (options != null)
-                                    {
-                                        options.DefaultTheme = targetTheme;
-                                        File.WriteAllText(optionsFile, JsonSerializer.Serialize(options, new JsonSerializerOptions { WriteIndented = true }));
-                                    }
+                                Import.SystemOptions? options =
+                                    JsonStorage.Read<Import.SystemOptions>(optionsFile);
+                                if (options != null)
+                                {
+                                    options.DefaultTheme = targetTheme;
+                                    JsonStorage.Write(optionsFile, options);
+                                }
                                 }
                                 Console.ForegroundColor = ConsoleColor.Green;
                                 Console.WriteLine($"✅ '{targetTheme}' is now your default boot theme.");
@@ -337,12 +376,11 @@ namespace SurfOS2
 
                 case "logout":
                     isRunning = false;
-                    if (!isScriptExecution) Login_Manager.ShowLoginScreen();
                     break;
 
                 case "exit":
                 case "shutdown":
-                    Console.WriteLine("Shutting down SurfOS... Goodbye! 👋");
+                    RetroConsole.ShutdownSequence();
                     Environment.Exit(0);
                     break;
 
@@ -364,6 +402,7 @@ namespace SurfOS2
             Console.WriteLine("\n--- SurfOS Available Commands ---");
             Console.WriteLine("  help      - Shows this menu");
             Console.WriteLine("  clear     - Clears terminal view");
+            Console.WriteLine("  anim      - Enables or disables retro animations");
             Console.WriteLine("  sys       - Displays hardware tracking dashboard");
             Console.WriteLine("  mine      - Mine virtual SurfCoins 🪙");
             Console.WriteLine("  shop      - Purchase rank flair (shop view, shop buy <name>)");
@@ -386,6 +425,7 @@ namespace SurfOS2
 
         private static void ShowSystemInfo()
         {
+            RetroConsole.Spinner("READING SYSTEM TABLES", 250, ConsoleColor.Cyan);
             Console.WriteLine("\n--- System Information ---");
             Console.WriteLine($"OS Version : SurfOS 2.0");
             Console.WriteLine($"Host PC    : {Import.Variables.machineName}");
@@ -394,11 +434,12 @@ namespace SurfOS2
         }
 
         // ==========================================
-        // 🛠️ MULTI-APP UPGRADES SYSTEM IMPLEMENTATION
+        // MULTI-APP UPGRADES SYSTEM IMPLEMENTATION
         // ==========================================
 
         private static void RunSysMonitor()
         {
+            RetroConsole.Spinner("POLLING HARDWARE BUS", 300, ConsoleColor.Cyan);
             TimeSpan uptime = DateTime.Now - Import.Variables.sessionStartTime;
             long processMemory = Process.GetCurrentProcess().WorkingSet64 / (1024 * 1024); // Memory in MBs
 
@@ -416,13 +457,13 @@ namespace SurfOS2
 
         private static void RunMiningSimulator()
         {
-            var user = Import.Variables.userDatabase.Find(u => u.Username.Equals(Import.Variables.userName, StringComparison.OrdinalIgnoreCase));
+            Import.DatabaseRecord? user = GetCurrentUser();
             if (user == null) return;
 
             Console.Write("⛏️ Mining sequence initiating...");
-            Random r = new Random();
-            int mined = r.Next(10, 50);
-            Thread.Sleep(1000); // Simulate processing latency
+            Console.WriteLine();
+            RetroConsole.ProgressBar("COMPUTING HASH BLOCK", 24, 28);
+            int mined = Random.Shared.Next(10, 50);
 
             user.SurfCoins += mined;
             SaveUserDatabase();
@@ -435,26 +476,18 @@ namespace SurfOS2
 
         private static void RunEconomyShop(string[] args, int cmdIndex)
         {
-            var user = Import.Variables.userDatabase.Find(u => u.Username.Equals(Import.Variables.userName, StringComparison.OrdinalIgnoreCase));
+            Import.DatabaseRecord? user = GetCurrentUser();
             if (user == null) return;
 
-            string action = args.Length > cmdIndex + 1 ? args[cmdIndex + 1].ToLower() : "view";
-
-            // Flair catalog definition matrix
-            Dictionary<string, int> shopCatalog = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
-            {
-                { "VIP", 200 },
-                { "Hacker", 500 },
-                { "Coder", 800 },
-                { "SysAdmin", 1500 }
-            };
+            string action = args.Length > cmdIndex + 1
+                ? args[cmdIndex + 1].ToLowerInvariant()
+                : "view";
 
             if (action == "buy" && args.Length > cmdIndex + 2)
             {
                 string item = args[cmdIndex + 2];
-                if (shopCatalog.ContainsKey(item))
+                if (ShopCatalog.TryGetValue(item, out int price))
                 {
-                    int price = shopCatalog[item];
                     if (user.SurfCoins >= price)
                     {
                         user.SurfCoins -= price;
@@ -471,7 +504,7 @@ namespace SurfOS2
             {
                 Console.WriteLine("\n🛒 === SurfOS Custom Rank Boutique ===");
                 Console.WriteLine($"Your balance: {user.SurfCoins} SurfCoins 🪙\n");
-                foreach (var product in shopCatalog)
+                foreach (var product in ShopCatalog)
                 {
                     Console.WriteLine($" - Rank: [{product.Key}] {new string(' ', 10 - product.Key.Length)} Cost: {product.Value} SurfCoins");
                 }
@@ -481,17 +514,19 @@ namespace SurfOS2
 
         private static void RunMailSystem(string[] args, int cmdIndex)
         {
-            var currentUser = Import.Variables.userDatabase.Find(u => u.Username.Equals(Import.Variables.userName, StringComparison.OrdinalIgnoreCase));
+            Import.DatabaseRecord? currentUser = GetCurrentUser();
             if (currentUser == null) return;
 
-            string action = args.Length > cmdIndex + 1 ? args[cmdIndex + 1].ToLower() : "list";
+            string action = args.Length > cmdIndex + 1
+                ? args[cmdIndex + 1].ToLowerInvariant()
+                : "list";
 
             if (action == "send" && args.Length > cmdIndex + 3)
             {
                 string recipientName = args[cmdIndex + 2];
                 string messageBody = string.Join(" ", args, cmdIndex + 3, args.Length - (cmdIndex + 3));
 
-                var receiver = Import.Variables.userDatabase.Find(u => u.Username.Equals(recipientName, StringComparison.OrdinalIgnoreCase));
+                Import.DatabaseRecord? receiver = FindUser(recipientName);
                 if (receiver == null)
                 {
                     Console.WriteLine($"🚨 Mail failure: Destination account '{recipientName}' could not be resolved.");
@@ -507,6 +542,7 @@ namespace SurfOS2
                     MessageText = messageBody
                 });
 
+                RetroConsole.Spinner("TRANSMITTING MESSAGE", 350, ConsoleColor.Cyan);
                 SaveUserDatabase();
                 Console.ForegroundColor = ConsoleColor.Green;
                 Console.WriteLine($"📬 Message routed successfully to '{recipientName}' storage banks.");
@@ -550,11 +586,9 @@ namespace SurfOS2
             }
 
             Console.ForegroundColor = ConsoleColor.DarkYellow;
-            Console.WriteLine($"⚙️ Parsing automation sequence profile: {fileName}...");
-            Thread.Sleep(500);
+            RetroConsole.Spinner($"PARSING {fileName}", 300, ConsoleColor.DarkYellow);
 
-            string[] macroCommands = File.ReadAllLines(filePath);
-            foreach (string macroLine in macroCommands)
+            foreach (string macroLine in File.ReadLines(filePath))
             {
                 if (string.IsNullOrWhiteSpace(macroLine) || macroLine.Trim().StartsWith("#")) continue; // Skip comments/blanks
 
@@ -563,10 +597,13 @@ namespace SurfOS2
                 Screen_Print.ResetColors();
 
                 ExecuteCommand(macroLine, ref isRunning, true);
-                System.Threading.Thread.Sleep(300); // 300ms macro sequence buffer delay
+                if (!isRunning)
+                {
+                    break;
+                }
             }
             Console.ForegroundColor = ConsoleColor.Green;
-            Console.WriteLine("✅ Script macro compilation successfully terminated.");
+            RetroConsole.TypeLine("SCRIPT EXECUTION COMPLETE.", 4);
         }
 
         private static void ManageTodo(string[] args, int cmdIndex)
@@ -575,18 +612,19 @@ namespace SurfOS2
             List<Import.TodoItem> tasks = new List<Import.TodoItem>();
             if (File.Exists(todoPath))
             {
-                string json = File.ReadAllText(todoPath);
-                tasks = JsonSerializer.Deserialize<List<Import.TodoItem>>(json) ?? new List<Import.TodoItem>();
+                tasks = JsonStorage.Read<List<Import.TodoItem>>(todoPath) ?? [];
             }
 
-            string action = args.Length > cmdIndex + 1 ? args[cmdIndex + 1].ToLower() : "list";
+            string action = args.Length > cmdIndex + 1
+                ? args[cmdIndex + 1].ToLowerInvariant()
+                : "list";
 
             if (action == "add" && args.Length > cmdIndex + 2)
             {
                 string taskDesc = string.Join(" ", args, cmdIndex + 2, args.Length - (cmdIndex + 2));
                 int nextId = tasks.Count > 0 ? tasks[^1].ID + 1 : 1;
                 tasks.Add(new Import.TodoItem { ID = nextId, Task = taskDesc, Done = false });
-                File.WriteAllText(todoPath, JsonSerializer.Serialize(tasks, new JsonSerializerOptions { WriteIndented = true }));
+                JsonStorage.Write(todoPath, tasks);
                 Console.ForegroundColor = ConsoleColor.Green;
                 Console.WriteLine($"✅ Added task: {taskDesc}");
             }
@@ -596,7 +634,7 @@ namespace SurfOS2
                 if (task != null)
                 {
                     task.Done = true;
-                    File.WriteAllText(todoPath, JsonSerializer.Serialize(tasks, new JsonSerializerOptions { WriteIndented = true }));
+                    JsonStorage.Write(todoPath, tasks);
                     Console.ForegroundColor = ConsoleColor.Green;
                     Console.WriteLine($"✅ Task {compId} marked complete!");
                 }
@@ -604,7 +642,7 @@ namespace SurfOS2
             else if (action == "remove" && args.Length > cmdIndex + 2 && int.TryParse(args[cmdIndex + 2], out int remId))
             {
                 tasks.RemoveAll(t => t.ID == remId);
-                File.WriteAllText(todoPath, JsonSerializer.Serialize(tasks, new JsonSerializerOptions { WriteIndented = true }));
+                JsonStorage.Write(todoPath, tasks);
                 Console.ForegroundColor = ConsoleColor.Green;
                 Console.WriteLine($"🗑️ Task {remId} removed.");
             }
@@ -648,7 +686,6 @@ namespace SurfOS2
                     File.WriteAllLines(filePath, lines);
                     Console.ForegroundColor = ConsoleColor.Green;
                     Console.WriteLine($"\n💾 File '{fileName}' saved.");
-                    Thread.Sleep(1200);
                     break;
                 }
                 if (input == ":q") break;
@@ -661,7 +698,66 @@ namespace SurfOS2
         private static void SaveUserDatabase()
         {
             string dbPath = Path.Combine(Import.Variables.installPath, "database.json");
-            File.WriteAllText(dbPath, JsonSerializer.Serialize(Import.Variables.userDatabase, new JsonSerializerOptions { WriteIndented = true }));
+            JsonStorage.Write(dbPath, Import.Variables.userDatabase);
+        }
+
+        private static void ConfigureAnimations(string[] args, int commandIndex)
+        {
+            if (args.Length <= commandIndex + 1)
+            {
+                Console.WriteLine(
+                    $"Retro animations are {(RetroConsole.AnimationsEnabled ? "ON" : "OFF")}.");
+                Console.WriteLine("Usage: anim <on|off>");
+                return;
+            }
+
+            string setting = args[commandIndex + 1].ToLowerInvariant();
+            if (setting is not ("on" or "off"))
+            {
+                Console.WriteLine("Usage: anim <on|off>");
+                return;
+            }
+
+            RetroConsole.AnimationsEnabled = setting == "on";
+            RetroConsole.TypeLine(
+                $"RETRO DISPLAY EFFECTS {(RetroConsole.AnimationsEnabled ? "ENABLED" : "DISABLED")}.",
+                4);
+        }
+
+        private static bool UsesInteractiveScreen(string command)
+        {
+            return command is "edit" or "gui" or "startx";
+        }
+
+        private static Import.DatabaseRecord? GetCurrentUser()
+        {
+            return FindUser(Import.Variables.userName);
+        }
+
+        private static Import.DatabaseRecord? FindUser(string username)
+        {
+            return Import.Variables.userDatabase.Find(
+                user => user.Username.Equals(username, StringComparison.OrdinalIgnoreCase));
+        }
+
+        /// <summary>
+        /// Draws a colored status bar at the top of the terminal.
+        /// </summary>
+        public static void DrawHeader()
+        {
+            Console.BackgroundColor = ConsoleColor.DarkBlue;
+            Console.ForegroundColor = ConsoleColor.White;
+
+            // Calculate uptime safely
+            TimeSpan uptime = Import.Variables.sessionStartTime != DateTime.MinValue
+                ? DateTime.Now - Import.Variables.sessionStartTime
+                : TimeSpan.Zero;
+
+            // Format the text to stretch across the whole console width
+            string status = $"  SurfOS Kernel v3.0  |  User: {Import.Variables.userName}  |  Cloud: ONLINE  |  Uptime: {uptime:hh\\:mm\\:ss}  ";
+            Console.WriteLine(status.PadRight(Console.WindowWidth));
+
+            Console.ResetColor();
         }
     }
 }

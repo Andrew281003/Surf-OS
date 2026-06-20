@@ -7,6 +7,13 @@ namespace SurfOS2
     {
         public static void StartGUI()
         {
+            Console.Clear();
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            RetroConsole.Spinner("LOADING VIDEO DRIVER", 300);
+            RetroConsole.Spinner("INITIALIZING WINDOW MANAGER", 300);
+            RetroConsole.ProgressBar("DRAWING DESKTOP", 18, 16);
+            Console.ResetColor();
+
             int selectedIndex = 0;
             string[] apps = { "💻 Terminal (Exit GUI)", "🖥️ System Monitor", "📬 Mailbox", "🛒 Surf Shop", "⛏️ Crypto Miner", "📅 Calendar & Clock" };
             bool inGUI = true;
@@ -74,6 +81,7 @@ namespace SurfOS2
                 if (key == ConsoleKey.Enter)
                 {
                     Console.Clear();
+                    RetroConsole.Spinner($"OPENING {apps[selectedIndex]}", 220, ConsoleColor.Cyan);
                     bool dummyRun = true;
 
                     if (selectedIndex == 0) // Terminal

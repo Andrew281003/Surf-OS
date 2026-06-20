@@ -7,7 +7,7 @@
     <Nullable>enable</Nullable>
     <ApplicationIcon>logo.ico</ApplicationIcon>
     <AssemblyTitle>SurfOS</AssemblyTitle>
-	  <UseWindowsForms>true</UseWindowsForms>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
 
   <ItemGroup>
@@ -19,6 +19,9 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Update="secrets.json">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
     <None Update="surfos-5b9af-firebase-adminsdk-fbsvc-fa77c78036.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>

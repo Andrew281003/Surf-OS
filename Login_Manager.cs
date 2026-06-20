@@ -1,120 +1,198 @@
-﻿using System;
+using System.Runtime.Versioning;
+using System.Text;
 
-namespace SurfOS2
+namespace SurfOS2;
+
+internal class Login_Manager
 {
-    internal class Login_Manager
+    [SupportedOSPlatform("windows")]
+    public static void ShowLoginScreen()
     {
-        // 🌟 FIX: Guard this entire method so Windows-only beeps don't throw warnings!
-        [System.Runtime.Versioning.SupportedOSPlatform("windows")]
-        public static void ShowLoginScreen()
+        Screen_Print.ResetToDefaultOSTheme();
+
+        while (true)
         {
-            Screen_Print.ResetToDefaultOSTheme();
+            Console.Clear();
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            RetroConsole.TypeLine("======================================", 2);
+            RetroConsole.TypeLine("       SURFOS SECURITY TERMINAL       ", 3);
+            RetroConsole.TypeLine("======================================", 2);
+            RetroConsole.TypeLine("IDENTIFICATION REQUIRED\n", 3);
+            Console.ResetColor();
 
-            bool isAuthenticated = false;
+            Console.Write("Username: ");
+            string inputUser = (Console.ReadLine() ?? string.Empty).Trim();
 
-            while (!isAuthenticated)
+            if (Recovery_Manager.IsRecoveryUsername(inputUser))
             {
-                Console.Clear();
-                Console.ForegroundColor = ConsoleColor.Cyan;
-                Console.WriteLine("======================================");
-                Console.WriteLine($"            SurfOS Login              ");
-                Console.WriteLine("======================================\n");
-                Console.ResetColor();
-
-                Console.Write("Username: ");
-                string inputUser = Console.ReadLine() ?? string.Empty;
-
-                var userRecord = Import.Variables.userDatabase.Find(u => u.Username.Equals(inputUser, StringComparison.OrdinalIgnoreCase));
-
-                if (userRecord == null)
-                {
-                    Console.ForegroundColor = ConsoleColor.Red;
-                    Console.WriteLine("\n🚨 User not found in the database.");
-                    Console.ResetColor();
-                    System.Threading.Thread.Sleep(1500);
-                    continue;
-                }
-
-                Console.Write("Password: ");
-                string inputPass = ReadPassword();
-
-                if (inputPass == userRecord.Password)
-                {
-                    isAuthenticated = true;
-                    
-                    Import.Variables.userName = userRecord.Username;
-                    Import.Variables.userPassword = userRecord.Password;
-                    Import.Variables.uuid = userRecord.ID;
-
-                    // 🌟 Start counting session uptime right now!
-                    Import.Variables.sessionStartTime = DateTime.Now;
-
-                    Console.ForegroundColor = ConsoleColor.Green;
-                    Console.WriteLine("\n\n");
-                    
-                    string bootMsg = "Access Granted! Booting system...";
-                    foreach (char c in bootMsg)
-                    {
-                        Console.Write(c);
-                        System.Threading.Thread.Sleep(30); 
-                    }
-                    Console.WriteLine();
-
-                    // 🌟 MAIL CHECK: Flash unread mail notifications before terminal opens!
-                    if (userRecord.Mailbox != null && userRecord.Mailbox.Count > 0)
-                    {
-                        Console.ForegroundColor = ConsoleColor.Yellow;
-                        Console.WriteLine($"\n📩 Notification: You have ({userRecord.Mailbox.Count}) unread message(s)! Type 'mail' to check.");
-                        Console.ResetColor();
-                        System.Threading.Thread.Sleep(1500);
-                    }
-
-                    try 
-                    {
-                        Console.Beep(440, 150); 
-                        Console.Beep(554, 150); 
-                        Console.Beep(659, 300); 
-                    } 
-                    catch { }
-
-                    System.Threading.Thread.Sleep(800); 
-                    CLI_Engine.StartTerminal(); 
-                }
-                else
-                {
-                    Console.ForegroundColor = ConsoleColor.Red;
-                    Console.WriteLine("\n🚨 Incorrect Password. Try again.");
-                    Console.ResetColor();
-                    System.Threading.Thread.Sleep(1500);
-                }
+                RunPasswordRecovery();
+                continue;
             }
+
+            Import.DatabaseRecord? userRecord = Import.Variables.userDatabase.Find(
+                user => user.Username.Equals(inputUser, StringComparison.OrdinalIgnoreCase));
+
+            if (userRecord is null)
+            {
+                ShowLoginError("🚨 User not found in the database.");
+                continue;
+            }
+
+            Console.Write("Password: ");
+            string inputPassword = ReadPassword();
+
+            if (!string.Equals(inputPassword, userRecord.Password, StringComparison.Ordinal))
+            {
+                ShowLoginError("🚨 Incorrect Password. Try again.");
+                continue;
+            }
+
+            StartSession(userRecord);
+        }
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static void StartSession(Import.DatabaseRecord userRecord)
+    {
+        Import.Variables.userName = userRecord.Username;
+        Import.Variables.userPassword = userRecord.Password;
+        Import.Variables.uuid = userRecord.ID;
+        Import.Variables.sessionStartTime = DateTime.Now;
+
+        Console.ForegroundColor = ConsoleColor.Green;
+        Console.WriteLine();
+        RetroConsole.TypeLine("\nACCESS GRANTED", 7);
+        RetroConsole.Spinner("VERIFYING USER PROFILE", 250);
+        RetroConsole.Spinner("MOUNTING USER STORAGE", 250);
+        RetroConsole.ProgressBar("STARTING COMMAND PROCESSOR", 16, 12);
+
+        if (userRecord.Mailbox.Count > 0)
+        {
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.WriteLine(
+                $"\n📩 Notification: You have ({userRecord.Mailbox.Count}) unread message(s)! Type 'mail' to check.");
         }
 
-        private static string ReadPassword()
+        Console.ResetColor();
+
+        try
         {
-            string password = "";
-            ConsoleKeyInfo info = Console.ReadKey(true);
-            while (info.Key != ConsoleKey.Enter)
+            Console.Beep(440, 100);
+            Console.Beep(554, 100);
+            Console.Beep(659, 180);
+        }
+        catch
+        {
+            // Audio is optional and may be unavailable in some terminals.
+        }
+
+        CLI_Engine.StartTerminal();
+    }
+
+    private static void ShowLoginError(string message)
+    {
+        Console.ForegroundColor = ConsoleColor.Red;
+        RetroConsole.TypeLine($"\n{message}", 5);
+        Console.ResetColor();
+        Thread.Sleep(350);
+    }
+
+    private static void RunPasswordRecovery()
+    {
+        Console.Write("Recovery code: ");
+        string recoveryCode = ReadPassword();
+        Console.WriteLine();
+
+        if (!Recovery_Manager.VerifyCode(recoveryCode))
+        {
+            ShowLoginError("Invalid recovery code.");
+            return;
+        }
+
+        Import.DatabaseRecord? account = SelectRecoveryAccount();
+        if (account is null)
+        {
+            ShowLoginError("Account not found.");
+            return;
+        }
+
+        Console.Write("New password: ");
+        string newPassword = ReadPassword();
+        Console.Write("\nConfirm password: ");
+        string confirmedPassword = ReadPassword();
+        Console.WriteLine();
+
+        if (string.IsNullOrWhiteSpace(newPassword))
+        {
+            ShowLoginError("The new password cannot be empty.");
+            return;
+        }
+
+        if (!string.Equals(
+                newPassword,
+                confirmedPassword,
+                StringComparison.Ordinal))
+        {
+            ShowLoginError("The passwords do not match.");
+            return;
+        }
+
+        account.Password = newPassword;
+        JsonStorage.Write(
+            Path.Combine(Import.Variables.installPath, "database.json"),
+            Import.Variables.userDatabase);
+
+        Console.ForegroundColor = ConsoleColor.Green;
+        RetroConsole.TypeLine(
+            $"\nPASSWORD RESET COMPLETE FOR '{account.Username}'.", 5);
+        Console.ResetColor();
+        Thread.Sleep(500);
+    }
+
+    private static Import.DatabaseRecord? SelectRecoveryAccount()
+    {
+        if (Import.Variables.userDatabase.Count == 1)
+        {
+            return Import.Variables.userDatabase[0];
+        }
+
+        Console.Write("Account username: ");
+        string username = (Console.ReadLine() ?? string.Empty).Trim();
+
+        return Import.Variables.userDatabase.Find(
+            user => user.Username.Equals(
+                username,
+                StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string ReadPassword()
+    {
+        StringBuilder password = new();
+
+        while (true)
+        {
+            ConsoleKeyInfo key = Console.ReadKey(intercept: true);
+            if (key.Key == ConsoleKey.Enter)
             {
-                if (info.Key != ConsoleKey.Backspace)
-                {
-                    Console.Write("*");
-                    password += info.KeyChar;
-                }
-                else if (info.Key == ConsoleKey.Backspace)
-                {
-                    if (!string.IsNullOrEmpty(password))
-                    {
-                        password = password.Substring(0, password.Length - 1);
-                        int pos = Console.CursorLeft;
-                        Console.SetCursorPosition(pos - 1, Console.CursorTop);
-                        Console.Write(" ");
-                        Console.SetCursorPosition(pos - 1, Console.CursorTop);
-                    }
-                }
-                info = Console.ReadKey(true);
+                return password.ToString();
             }
-            return password;
+
+            if (key.Key == ConsoleKey.Backspace)
+            {
+                if (password.Length > 0)
+                {
+                    password.Length--;
+                    Console.Write("\b \b");
+                }
+
+                continue;
+            }
+
+            if (!char.IsControl(key.KeyChar))
+            {
+                password.Append(key.KeyChar);
+                Console.Write('*');
+            }
         }
     }
 }

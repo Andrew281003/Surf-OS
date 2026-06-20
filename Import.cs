@@ -37,6 +37,8 @@ namespace Import
         public int PackageOption { get; set; }
         public string DefaultTheme { get; set; } = "HolySurf"; 
         public string TimeZone { get; set; } = "Local";
+        public string RecoveryCodeHash { get; set; } = string.Empty;
+        public string RecoveryCodeSalt { get; set; } = string.Empty;
     }
 
     public class DatabaseRecord

@@ -1,6 +1,5 @@
 ﻿using System;
 using System.IO;
-using System.Text.Json;
 
 namespace SurfOS2
 {
@@ -10,33 +9,35 @@ namespace SurfOS2
         {
             try
             {
-                Random random = new Random();
-                Import.Variables.uuid = random.Next(10000, 99999);
+                Import.Variables.uuid = Random.Shared.Next(10000, 99999);
 
-                string main_folder = Import.Variables.installPath;
+                string mainFolder = Import.Variables.installPath;
 
                 // --- Make Folders ---
-                Directory.CreateDirectory(main_folder);
-                Directory.CreateDirectory(Path.Combine(main_folder, "preVersions"));
+                Directory.CreateDirectory(mainFolder);
+                Directory.CreateDirectory(Path.Combine(mainFolder, "preVersions"));
                 
-                string packagesDirectory = Path.Combine(main_folder, "Packages");
+                string packagesDirectory = Path.Combine(mainFolder, "Packages");
                 Directory.CreateDirectory(packagesDirectory);
-
-                JsonSerializerOptions jsonFormatting = new JsonSerializerOptions { WriteIndented = true };
+                RetroConsole.Spinner("FORMATTING SYSTEM DIRECTORIES", 350);
 
                 // 1. Write Database (Now as a List!)
-                var dbList = new System.Collections.Generic.List<Import.DatabaseRecord>();
-                dbList.Add(new Import.DatabaseRecord
-                {
-                    ID = Import.Variables.uuid,
-                    Username = Import.Variables.userName,
-                    Password = Import.Variables.userPassword,
-                    Admin = $"{Import.Variables.uuid}::{Import.Variables.machineName}"
-                });
-                File.WriteAllText(Path.Combine(main_folder, "database.json"), JsonSerializer.Serialize(dbList, jsonFormatting));
+                List<Import.DatabaseRecord> dbList =
+                [
+                    new()
+                    {
+                        ID = Import.Variables.uuid,
+                        Username = Import.Variables.userName,
+                        Password = Import.Variables.userPassword,
+                        Admin = $"{Import.Variables.uuid}::{Import.Variables.machineName}"
+                    }
+                ];
+                Import.Variables.userDatabase = dbList;
+                JsonStorage.Write(Path.Combine(mainFolder, "database.json"), dbList);
+                RetroConsole.Spinner("WRITING USER DATABASE", 300);
 
                 // 2. Write System Options
-                var optionsData = new Import.SystemOptions
+                Import.SystemOptions optionsData = new()
                 {
                     InstallPath = Import.Variables.installPath,
                     UserName = Import.Variables.userName,
@@ -44,12 +45,16 @@ namespace SurfOS2
                     Uuid = Import.Variables.uuid,
                     NumRun = Import.Variables.numRun,
                     PackageOption = Import.Variables.packageOption,
+                    DefaultTheme = Import.Variables.defaultTheme,
                     TimeZone = Import.Variables.timeZone
                 };
-                File.WriteAllText(Path.Combine(main_folder, "options.json"), JsonSerializer.Serialize(optionsData, jsonFormatting));
+                string recoveryCode =
+                    Recovery_Manager.ConfigureNewInstallation(optionsData);
+                JsonStorage.Write(Path.Combine(mainFolder, "options.json"), optionsData);
+                RetroConsole.Spinner("WRITING SYSTEM CONFIGURATION", 300);
 
                 // 3. Write Installer Feedback flag
-                File.WriteAllText(Path.Combine(main_folder, "installer_feedback.json"), "{\"Installed\": true}");
+                File.WriteAllText(Path.Combine(mainFolder, "installer_feedback.json"), "{\"Installed\": true}");
 
                 // 4. Seed Default Theme Packs
                 var holyPack = new Import.SurfTheme {
@@ -58,7 +63,7 @@ namespace SurfOS2
                     TargetColor = "DarkYellow",
                     AsciiArt = Packages_IMPORT.Packages_Import.holysurf_PRINT
                 };
-                File.WriteAllText(Path.Combine(packagesDirectory, "HolySurf.json"), JsonSerializer.Serialize(holyPack, jsonFormatting));
+                JsonStorage.Write(Path.Combine(packagesDirectory, "HolySurf.json"), holyPack);
 
                 var unholyPack = new Import.SurfTheme {
                     ThemeName = "UnHolySurf",
@@ -66,18 +71,22 @@ namespace SurfOS2
                     TargetColor = "Red",
                     AsciiArt = Packages_IMPORT.Packages_Import.unholysurf_PRINT
                 };
-                File.WriteAllText(Path.Combine(packagesDirectory, "UnHolySurf.json"), JsonSerializer.Serialize(unholyPack, jsonFormatting));
+                JsonStorage.Write(Path.Combine(packagesDirectory, "UnHolySurf.json"), unholyPack);
+                RetroConsole.ProgressBar("COPYING THEME PACKAGES", 18, 15);
 
                 // Proceed to show UI
                 Screen_Print.Print_Selected_Package();
+                Recovery_Manager.DisplayRecoveryCode(recoveryCode);
             }
-            catch (Exception error)
+            catch (Exception error) when (error.Message.Contains("access"))
             {
                 Console.Clear();
                 Console.WriteLine($"I'm so sorry. I cannot start the setup. Error: \n\n{error.Message}\n");
-                Console.WriteLine("I recommend trying to install it to a different location (like Desktop). Press any key to retry.");
+                Console.WriteLine("Please start the program as an administrator.");
                 Console.ReadKey();
-                Program.Main();
+                Console.WriteLine("Shutting down...");
+                System.Threading.Thread.Sleep(1000);
+                Environment.Exit(0);
             }
         }
     }

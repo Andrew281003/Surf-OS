@@ -1,141 +1,243 @@
-﻿using System.Runtime.Versioning;
-using System.Text.Json;
+using System.Runtime.Versioning;
 
-namespace SurfOS2
+namespace SurfOS2;
+
+internal static class Time_Manager
 {
-    internal class Time_Manager
+    private static readonly object AlarmLock = new();
+    private static int _alarmDaemonStarted;
+    private static string? _cachedTimeZoneName;
+    private static TimeZoneInfo? _cachedTimeZone;
+
+    public static DateTime GetCurrentTime()
     {
-        // 🌟 Calculates the exact time based on your setup choice
-        public static DateTime GetCurrentTime()
+        string timeZoneName = Import.Variables.timeZone;
+        if (timeZoneName == "Local")
         {
-            if (Import.Variables.timeZone == "Local") return DateTime.Now;
+            return DateTime.Now;
+        }
 
-            try
+        try
+        {
+            TimeZoneInfo timeZone = GetTimeZone(timeZoneName);
+            return TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, timeZone);
+        }
+        catch
+        {
+            return DateTime.Now;
+        }
+    }
+
+    private static TimeZoneInfo GetTimeZone(string timeZoneName)
+    {
+        if (_cachedTimeZone is not null && _cachedTimeZoneName == timeZoneName)
+        {
+            return _cachedTimeZone;
+        }
+
+        string timeZoneId = timeZoneName switch
+        {
+            "CET" => "Central European Standard Time",
+            "EST" => "Eastern Standard Time",
+            _ => "UTC"
+        };
+
+        _cachedTimeZone = TimeZoneInfo.FindSystemTimeZoneById(timeZoneId);
+        _cachedTimeZoneName = timeZoneName;
+        return _cachedTimeZone;
+    }
+
+    public static void ShowClock()
+    {
+        RetroConsole.Spinner("READING REAL-TIME CLOCK", 180, ConsoleColor.Cyan);
+        DateTime now = GetCurrentTime();
+        Console.WriteLine($"\n🕰️  Current Date & Time: {now:F}");
+        Console.WriteLine($"🌐  Active Timezone: {Import.Variables.timeZone}");
+    }
+
+    public static void ShowCalendar()
+    {
+        RetroConsole.Spinner("CALCULATING DATE TABLE", 180, ConsoleColor.Cyan);
+        DateTime now = GetCurrentTime();
+        Console.WriteLine($"\n--- 📅 Calendar: {now:MMMM yyyy} ---");
+        Console.WriteLine(" Su Mo Tu We Th Fr Sa");
+
+        int daysInMonth = DateTime.DaysInMonth(now.Year, now.Month);
+        int startDayOfWeek = (int)new DateTime(now.Year, now.Month, 1).DayOfWeek;
+
+        Console.Write(new string(' ', startDayOfWeek * 3));
+
+        for (int day = 1; day <= daysInMonth; day++)
+        {
+            if (day == now.Day)
             {
-                string tzId = "UTC";
-                if (Import.Variables.timeZone == "CET") tzId = "Central European Standard Time";
-                else if (Import.Variables.timeZone == "EST") tzId = "Eastern Standard Time";
-
-                TimeZoneInfo tz = TimeZoneInfo.FindSystemTimeZoneById(tzId);
-                return TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, tz);
+                Console.ForegroundColor = ConsoleColor.Black;
+                Console.BackgroundColor = ConsoleColor.White;
             }
-            catch
+
+            Console.Write($"{day,3}");
+            Screen_Print.ResetColors();
+
+            if ((day + startDayOfWeek) % 7 == 0)
             {
-                return DateTime.Now; // Failsafe
+                Console.WriteLine();
             }
         }
 
-        public static void ShowClock()
+        Console.WriteLine();
+    }
+
+    public static void ManageAlarm(string[] args, int commandIndex)
+    {
+        string alarmsPath = GetAlarmsPath();
+        EnsureAlarmsLoaded(alarmsPath);
+
+        string action = args.Length > commandIndex + 1
+            ? args[commandIndex + 1].ToLowerInvariant()
+            : "list";
+
+        lock (AlarmLock)
         {
-            DateTime now = GetCurrentTime();
-            Console.WriteLine($"\n🕰️  Current Date & Time: {now.ToString("F")}");
-            Console.WriteLine($"🌐  Active Timezone: {Import.Variables.timeZone}");
-        }
-
-        public static void ShowCalendar()
-        {
-            DateTime now = GetCurrentTime();
-            Console.WriteLine($"\n--- 📅 Calendar: {now.ToString("MMMM yyyy")} ---");
-            Console.WriteLine(" Su Mo Tu We Th Fr Sa");
-
-            DateTime firstDay = new DateTime(now.Year, now.Month, 1);
-            int daysInMonth = DateTime.DaysInMonth(now.Year, now.Month);
-            int startDayOfWeek = (int)firstDay.DayOfWeek;
-
-            for (int i = 0; i < startDayOfWeek; i++) Console.Write("   ");
-
-            for (int day = 1; day <= daysInMonth; day++)
+            if (action == "add" && args.Length > commandIndex + 2)
             {
-                if (day == now.Day)
-                {
-                    Console.ForegroundColor = ConsoleColor.Black;
-                    Console.BackgroundColor = ConsoleColor.White;
-                }
-
-                Console.Write($"{day,3}");
-                Screen_Print.ResetColors(); // Fix background right after
-
-                if ((day + startDayOfWeek) % 7 == 0) Console.WriteLine();
+                AddAlarm(args, commandIndex, alarmsPath);
             }
-            Console.WriteLine();
-        }
-
-        public static void ManageAlarm(string[] args, int cmdIndex)
-        {
-            string alarmsPath = Path.Combine(Import.Variables.installPath, "alarms.json");
-
-            if (File.Exists(alarmsPath))
+            else if (action == "remove" &&
+                     args.Length > commandIndex + 2 &&
+                     int.TryParse(args[commandIndex + 2], out int id))
             {
-                string json = File.ReadAllText(alarmsPath);
-                Import.Variables.alarms = JsonSerializer.Deserialize<System.Collections.Generic.List<Import.AlarmRecord>>(json) ?? new System.Collections.Generic.List<Import.AlarmRecord>();
-            }
-
-            string action = args.Length > cmdIndex + 1 ? args[cmdIndex + 1].ToLower() : "list";
-
-            if (action == "add" && args.Length > cmdIndex + 2)
-            {
-                string timeStr = args[cmdIndex + 2]; // e.g., "14:30"
-                string message = args.Length > cmdIndex + 3 ? string.Join(" ", args, cmdIndex + 3, args.Length - (cmdIndex + 3)) : "Alarm!";
-
-                int nextId = Import.Variables.alarms.Count > 0 ? Import.Variables.alarms[^1].ID + 1 : 1;
-                Import.Variables.alarms.Add(new Import.AlarmRecord { ID = nextId, Time = timeStr, Message = message, IsActive = true });
-
-                File.WriteAllText(alarmsPath, JsonSerializer.Serialize(Import.Variables.alarms, new JsonSerializerOptions { WriteIndented = true }));
+                Import.Variables.alarms.RemoveAll(alarm => alarm.ID == id);
+                SaveAlarms(alarmsPath);
                 Console.ForegroundColor = ConsoleColor.Green;
-                Console.WriteLine($"✅ Alarm set for {timeStr}: {message}");
-            }
-            else if (action == "remove" && args.Length > cmdIndex + 2)
-            {
-                if (int.TryParse(args[cmdIndex + 2], out int id))
-                {
-                    Import.Variables.alarms.RemoveAll(a => a.ID == id);
-                    File.WriteAllText(alarmsPath, JsonSerializer.Serialize(Import.Variables.alarms, new JsonSerializerOptions { WriteIndented = true }));
-                    Console.ForegroundColor = ConsoleColor.Green;
-                    Console.WriteLine($"🗑️ Alarm {id} removed.");
-                }
+                Console.WriteLine($"🗑️ Alarm {id} removed.");
             }
             else
             {
-                Console.WriteLine("\n--- ⏰ Active Alarms ---");
-                if (Import.Variables.alarms.Count == 0) Console.WriteLine("No alarms set.");
-                foreach (var a in Import.Variables.alarms)
-                {
-                    string status = a.IsActive ? "[ON] " : "[OFF]";
-                    Console.WriteLine($"{a.ID}. {status} {a.Time} - {a.Message}");
-                }
+                ListAlarms();
             }
         }
+    }
 
-        // =========================================================================
-        // 🌟 FIX: Tell the compiler this method uses Windows-specific audio features
-        // =========================================================================
-        [SupportedOSPlatform("windows")]
-        public static void StartAlarmDaemon()
+    private static void AddAlarm(string[] args, int commandIndex, string alarmsPath)
+    {
+        string time = args[commandIndex + 2];
+        string message = args.Length > commandIndex + 3
+            ? string.Join(" ", args, commandIndex + 3, args.Length - commandIndex - 3)
+            : "Alarm!";
+
+        int nextId = Import.Variables.alarms.Count == 0
+            ? 1
+            : Import.Variables.alarms.Max(alarm => alarm.ID) + 1;
+
+        Import.Variables.alarms.Add(new Import.AlarmRecord
         {
-            Task.Run(() =>
-            {
-                while (true)
-                {
-                    DateTime now = GetCurrentTime();
-                    string currentMinute = now.ToString("HH:mm");
+            ID = nextId,
+            Time = time,
+            Message = message,
+            IsActive = true
+        });
 
-                    foreach (var alarm in Import.Variables.alarms)
-                    {
-                        if (alarm.IsActive && alarm.Time == currentMinute)
-                        {
-                            // Trigger the alarm! No more platform warnings! 🎉
-                            Console.Beep(800, 300);
-                            Console.Beep(1000, 300);
-                            Console.Beep(800, 300);
+        SaveAlarms(alarmsPath);
+        Console.ForegroundColor = ConsoleColor.Green;
+        Console.WriteLine($"✅ Alarm set for {time}: {message}");
+    }
 
-                            alarm.IsActive = false;
-                            string alarmsPath = Path.Combine(Import.Variables.installPath, "alarms.json");
-                            File.WriteAllText(alarmsPath, JsonSerializer.Serialize(Import.Variables.alarms, new JsonSerializerOptions { WriteIndented = true }));
-                        }
-                    }
-                    Thread.Sleep(30000); // Check every 30 seconds
-                }
-            });
+    private static void ListAlarms()
+    {
+        Console.WriteLine("\n--- ⏰ Active Alarms ---");
+        if (Import.Variables.alarms.Count == 0)
+        {
+            Console.WriteLine("No alarms set.");
         }
+
+        foreach (Import.AlarmRecord alarm in Import.Variables.alarms)
+        {
+            string status = alarm.IsActive ? "[ON] " : "[OFF]";
+            Console.WriteLine($"{alarm.ID}. {status} {alarm.Time} - {alarm.Message}");
+        }
+    }
+
+    [SupportedOSPlatform("windows")]
+    public static void StartAlarmDaemon()
+    {
+        if (Interlocked.Exchange(ref _alarmDaemonStarted, 1) == 1)
+        {
+            return;
+        }
+
+        string alarmsPath = GetAlarmsPath();
+        EnsureAlarmsLoaded(alarmsPath);
+
+        _ = Task.Run(async () =>
+        {
+            using PeriodicTimer timer = new(TimeSpan.FromSeconds(30));
+
+            do
+            {
+                TriggerDueAlarms(alarmsPath);
+            }
+            while (await timer.WaitForNextTickAsync());
+        });
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static void TriggerDueAlarms(string alarmsPath)
+    {
+        string currentMinute = GetCurrentTime().ToString("HH:mm");
+
+        lock (AlarmLock)
+        {
+            bool changed = false;
+            foreach (Import.AlarmRecord alarm in Import.Variables.alarms)
+            {
+                if (!alarm.IsActive || alarm.Time != currentMinute)
+                {
+                    continue;
+                }
+
+                try
+                {
+                    Console.Beep(800, 300);
+                    Console.Beep(1000, 300);
+                    Console.Beep(800, 300);
+                }
+                catch
+                {
+                    // Audio is optional and may be unavailable in some terminals.
+                }
+
+                alarm.IsActive = false;
+                changed = true;
+            }
+
+            if (changed)
+            {
+                SaveAlarms(alarmsPath);
+            }
+        }
+    }
+
+    private static void EnsureAlarmsLoaded(string alarmsPath)
+    {
+        lock (AlarmLock)
+        {
+            if (Import.Variables.alarms.Count > 0 || !File.Exists(alarmsPath))
+            {
+                return;
+            }
+
+            Import.Variables.alarms =
+                JsonStorage.Read<List<Import.AlarmRecord>>(alarmsPath) ?? [];
+        }
+    }
+
+    private static string GetAlarmsPath()
+    {
+        return Path.Combine(Import.Variables.installPath, "alarms.json");
+    }
+
+    private static void SaveAlarms(string alarmsPath)
+    {
+        JsonStorage.Write(alarmsPath, Import.Variables.alarms);
     }
 }

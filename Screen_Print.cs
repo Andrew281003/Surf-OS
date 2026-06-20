@@ -1,4 +1,5 @@
-﻿using System.Text.Json;
+﻿using System.Security.Authentication.ExtendedProtection;
+using System.Text.Json;
 
 namespace SurfOS2
 {
@@ -6,10 +7,13 @@ namespace SurfOS2
     {
         public static void Call_Setup()
         {
-            Console.WriteLine("Hello, welcome to SurfOS. The place where YOU have 100% access to your computer." +
-                "\n" +
-                "\n[RIGHT ARROW] To start setup" +
-                "\n[Q] to quit");
+            Console.ForegroundColor = ConsoleColor.Green;
+            RetroConsole.TypeLine("SURFOS INSTALLATION PROGRAM", 5);
+            RetroConsole.TypeLine("---------------------------", 2);
+            RetroConsole.TypeLine("Welcome, operator. This program will configure your system.", 3);
+            RetroConsole.TypeLine("\n[RIGHT ARROW] Begin installation", 2);
+            RetroConsole.TypeLine("[Q] Abort", 2);
+            Console.ResetColor();
         }
 
         public static void Confirm_Setup()
@@ -62,10 +66,7 @@ namespace SurfOS2
                     {
                         if (sudoOverride)
                         {
-                            Console.ForegroundColor = ConsoleColor.DarkYellow;
-                            Console.WriteLine("⚠️ SUDO OVERRIDE: Loading unverified third-party theme...");
-                            ResetColors();
-                            System.Threading.Thread.Sleep(1200);
+                            // Nothing needed, at least for now
                         }
                         else
                         {
@@ -98,16 +99,16 @@ namespace SurfOS2
 
                     // 4. Draw Logo/ASCII
                     Console.Clear();
-                    Console.WriteLine(theme.AsciiArt);
+                    RetroConsole.RevealLines(theme.AsciiArt);
 
                     // 5. Apply custom UI Layout logic
                     if (theme.UILayout == "Centered")
                     {
-                        Console.WriteLine($"\n\t\t--- {theme.WelcomeMessage} ---");
+                        RetroConsole.TypeLine($"\n\t\t--- {theme.WelcomeMessage} ---", 3);
                     }
                     else
                     {
-                        Console.WriteLine($"\n> {theme.WelcomeMessage}");
+                        RetroConsole.TypeLine($"\n> {theme.WelcomeMessage}", 3);
                     }
 
                     Import.Variables.activePromptStyle = theme.PromptStyle;
@@ -123,6 +124,7 @@ namespace SurfOS2
         public static void Print_Selected_Package()
         {
             LoadAndApplyTheme(Import.Variables.defaultTheme, true);
+            return;
         }
     }
 }

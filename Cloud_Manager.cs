@@ -8,9 +8,35 @@ namespace SurfOS2
 {
     internal class Cloud_Manager
     {
-        // Nullable (?) added to fix the compiler warnings
         private static FirestoreDb? _db;
-        private static string _projectId = "surfos-5b9af"; // Your official project ID
+        private const string ProjectId = "surfos-5b9af";
+
+        public static void StartInBackground()
+        {
+            _ = Task.Run(async () =>
+            {
+                InitializeCloud();
+                if (_db is null)
+                {
+                    return;
+                }
+
+                try
+                {
+                    await _db.Collection("test_pings")
+                        .Document(Environment.MachineName)
+                        .SetAsync(new
+                        {
+                            Timestamp = DateTime.UtcNow,
+                            Status = "Online"
+                        });
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[Cloud Startup Error]: {ex.Message}");
+                }
+            });
+        }
 
         /// <summary>
         /// Initializes the global connection loop to Firestore using the local key file.
@@ -36,11 +62,7 @@ namespace SurfOS2
                 Environment.SetEnvironmentVariable("GOOGLE_APPLICATION_CREDENTIALS", keyPath);
 
                 // 3. Initialize the database context instance
-                _db = FirestoreDb.Create(_projectId);
-
-                Console.ForegroundColor = ConsoleColor.Cyan;
-                Console.WriteLine("🛰️  Network Handshake: Connected successfully to the global SurfOS Cloud Database!");
-                Console.ResetColor();
+                _db = FirestoreDb.Create(ProjectId);
             }
             catch (Exception ex)
             {
@@ -67,7 +89,7 @@ namespace SurfOS2
                     .Document($"userId_{username}");
 
                 // Create a data payload with the current universal timestamp
-                Dictionary<string, object> presenceData = new Dictionary<string, object>
+                Dictionary<string, object> presenceData = new()
                 {
                     { "username", username },
                     { "lastSeen", DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss") }

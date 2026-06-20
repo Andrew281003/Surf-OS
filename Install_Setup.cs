@@ -1,93 +1,133 @@
-﻿using System;
+using System.Runtime.Versioning;
 
-namespace SurfOS2
+namespace SurfOS2;
+
+internal static class Install_Setup
 {
-    internal class Install_Setup
+    [SupportedOSPlatform("windows")]
+    public static void Install_WizardP1()
     {
-        public static void Install_WizardP1()
+        Screen_Print.Call_Setup();
+        ConsoleKey key = Console.ReadKey(intercept: true).Key;
+
+        if (key is not (ConsoleKey.RightArrow or ConsoleKey.F2))
         {
-            Screen_Print.Call_Setup();
-
-            ConsoleKeyInfo input = Console.ReadKey(true);
-
-            if (input.Key == ConsoleKey.RightArrow || input.Key == ConsoleKey.F2)
-            {
-                Console.Clear();
-                Console.Write("Enter your desired SurfOS Username: ");
-                string name = Console.ReadLine() ?? string.Empty;
-                Import.Variables.userName = string.IsNullOrWhiteSpace(name) ? "Guest" : name;
-
-                // 🔐 NEW: Ask for a password
-                Console.Write("Create a SurfOS Password: ");
-                string pass = Console.ReadLine() ?? string.Empty;
-                Import.Variables.userPassword = string.IsNullOrWhiteSpace(pass) ? "1234" : pass; // Default to 1234 if empty
-
-                Install_WizardP2();
-            }
+            return;
         }
 
-        public static void Install_WizardP2()
+        Console.Clear();
+        RetroConsole.TypeLine("USER ACCOUNT CONFIGURATION", 5);
+        RetroConsole.TypeLine("--------------------------", 2);
+        RetroConsole.Type("Enter your desired SurfOS Username: ", 2);
+        string name = Console.ReadLine() ?? string.Empty;
+        Import.Variables.userName = string.IsNullOrWhiteSpace(name) ? "Guest" : name.Trim();
+
+        RetroConsole.Type("Create a SurfOS Password: ", 2);
+        string password = Console.ReadLine() ?? string.Empty;
+        Import.Variables.userPassword = string.IsNullOrWhiteSpace(password) ? "1234" : password;
+
+        if (!SelectInstallDirectory())
+        {
+            return;
+        }
+        SelectTheme();
+        SelectTimeZone();
+
+        File_Setup_Manager.Main_Directory();
+        Login_Manager.ShowLoginScreen();
+    }
+
+    private static bool SelectInstallDirectory()
+    {
+        while (true)
         {
             Console.Clear();
-            Console.WriteLine("Please select the directory where you want to install SurfOS" +
-                "\n" +
-                "\n[F1] - Desktop" +
-                "\n[F2] - Documents" +
-                "\n[F3] - Root (C partition)" +
-                "\n[F4] - Cancel");
+            RetroConsole.TypeBlock("""
+                Please select the directory where you want to install SurfOS
 
+                [F1] - Desktop
+                [F2] - Documents
+                [F3] - Root (C partition)
+                [F4] - Cancel
+                """, 2);
             Console.Write("\nOption: ");
-            ConsoleKeyInfo input = Console.ReadKey(true);
 
-            if (input.Key == ConsoleKey.F1) { Import.Variables.installPath = $"C:\\Users\\{Import.Variables.machineName}\\Desktop\\SurfOS"; }
-            else if (input.Key == ConsoleKey.F2) { Import.Variables.installPath = $"C:\\Users\\{Import.Variables.machineName}\\Documents\\SurfOS"; }
-            else if (input.Key == ConsoleKey.F3) { Import.Variables.installPath = "C:\\SurfOS"; } 
-            else if (input.Key == ConsoleKey.F4) { Install_WizardP1(); return; }
-            else { Install_WizardP2(); return; }
-            
-            Install_WizardP3();
+            switch (Console.ReadKey(intercept: true).Key)
+            {
+                case ConsoleKey.F1:
+                    Import.Variables.installPath = Path.Combine(
+                        Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
+                        "SurfOS");
+                    return true;
+                case ConsoleKey.F2:
+                    Import.Variables.installPath = Path.Combine(
+                        Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+                        "SurfOS");
+                    return true;
+                case ConsoleKey.F3:
+                    Import.Variables.installPath = @"C:\SurfOS";
+                    return true;
+                case ConsoleKey.F4:
+                    return false;
+            }
         }
+    }
 
-        public static void Install_WizardP3()
-                {
-                    Console.Clear();
-                    Console.WriteLine("Pick the theme you would like to use:" +
-                        "\n" +
-                        "\n[F1] - HolySurf" +
-                        "\n[F2] - UnHolySurf");
+    private static void SelectTheme()
+    {
+        while (true)
+        {
+            Console.Clear();
+            RetroConsole.TypeBlock("""
+                Pick the theme you would like to use:
 
-                    Console.Write("\nOption: ");
-                    ConsoleKeyInfo input = Console.ReadKey(true);
+                [F1] - HolySurf
+                [F2] - UnHolySurf
+                """, 2);
+            Console.Write("\nOption: ");
 
-                    if (input.Key == ConsoleKey.F1) { Import.Variables.packageOption = 1; }
-                    else if (input.Key == ConsoleKey.F2) { Import.Variables.packageOption = 2; }
-                    else { Install_WizardP3(); return; }
+            switch (Console.ReadKey(intercept: true).Key)
+            {
+                case ConsoleKey.F1:
+                    Import.Variables.packageOption = 1;
+                    Import.Variables.defaultTheme = "HolySurf";
+                    return;
+                case ConsoleKey.F2:
+                    Import.Variables.packageOption = 2;
+                    Import.Variables.defaultTheme = "UnHolySurf";
+                    return;
+            }
+        }
+    }
 
-                    // 🌟 FIX: Go to Phase 4 instead of finishing!
-                    Install_WizardP4();
-                }
+    private static void SelectTimeZone()
+    {
+        while (true)
+        {
+            Console.Clear();
+            RetroConsole.TypeBlock("""
+                Select your OS Timezone:
 
-                // 🌟 NEW: The Timezone Setup Screen
-                public static void Install_WizardP4()
-                {
-                    Console.Clear();
-                    Console.WriteLine("Select your OS Timezone:" +
-                        "\n" +
-                        "\n[F1] - Local PC Time (Default)" +
-                        "\n[F2] - UTC" +
-                        "\n[F3] - Central European Time (CET)" +
-                        "\n[F4] - Eastern Standard Time (EST)");
+                [F1] - Local PC Time (Default)
+                [F2] - UTC
+                [F3] - Central European Time (CET)
+                [F4] - Eastern Standard Time (EST)
+                """, 2);
+            Console.Write("\nOption: ");
 
-                    Console.Write("\nOption: ");
-                    ConsoleKeyInfo input = Console.ReadKey(true);
+            Import.Variables.timeZone = Console.ReadKey(intercept: true).Key switch
+            {
+                ConsoleKey.F1 => "Local",
+                ConsoleKey.F2 => "UTC",
+                ConsoleKey.F3 => "CET",
+                ConsoleKey.F4 => "EST",
+                _ => string.Empty
+            };
 
-                    if (input.Key == ConsoleKey.F1) { Import.Variables.timeZone = "Local"; }
-                    else if (input.Key == ConsoleKey.F2) { Import.Variables.timeZone = "UTC"; }
-                    else if (input.Key == ConsoleKey.F3) { Import.Variables.timeZone = "CET"; }
-                    else if (input.Key == ConsoleKey.F4) { Import.Variables.timeZone = "EST"; }
-                    else { Install_WizardP4(); return; }
-
-                    File_Setup_Manager.Main_Directory();
-                }
+            if (Import.Variables.timeZone.Length > 0)
+            {
+                return;
+            }
+        }
     }
 }

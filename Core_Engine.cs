@@ -51,19 +51,12 @@ namespace SurfOS2
             // 🌟 NEW: Added WelcomeMessage and PromptStyle to the hash!
             string rawData = $"{theme.ThemeName}{theme.TargetColor}{theme.FontName}{theme.WelcomeMessage}{theme.PromptStyle}{OS_SECRET_KEY}";
 
-            using (SHA256 sha256Hash = SHA256.Create())
-            {
-                // ... (Keep the rest of this method exactly the same) ...
-                byte[] bytes = sha256Hash.ComputeHash(Encoding.UTF8.GetBytes(rawData));
-                StringBuilder builder = new StringBuilder();
-                for (int i = 0; i < bytes.Length; i++)
-                {
-                    builder.Append(bytes[i].ToString("x2"));
-                }
-
-                string expectedHash = builder.ToString();
-                return expectedHash == theme.AuthorSignature; // True if it's 100% yours!
-            }
+            byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(rawData));
+            string expectedHash = Convert.ToHexStringLower(hash);
+            return string.Equals(
+                expectedHash,
+                theme.AuthorSignature,
+                StringComparison.OrdinalIgnoreCase);
         }
 
         // =========================================================================
