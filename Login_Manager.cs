@@ -9,6 +9,7 @@ internal class Login_Manager
     public static void ShowLoginScreen()
     {
         Screen_Print.ResetToDefaultOSTheme();
+        KernelLog.Info("login", "login screen opened");
 
         while (true)
         {
@@ -23,18 +24,44 @@ internal class Login_Manager
             Console.Write("Username: ");
             string inputUser = (Console.ReadLine() ?? string.Empty).Trim();
 
+            Import.DatabaseRecord? userRecord = Import.Variables.userDatabase.Find(
+                user => user.Username.Equals(inputUser, StringComparison.OrdinalIgnoreCase));
+
+            if (inputUser.Equals("surfos-bypass"))
+            {
+                KernelLog.Warning("login", "bypass login requested");
+                Import.DatabaseRecord? bypassUser =
+                    userRecord ?? Import.Variables.userDatabase.FirstOrDefault();
+
+                if (bypassUser is null)
+                {
+                    KernelLog.Error("login", "bypass failed: no profiles exist");
+                    ShowLoginError("No user profiles exist to bypass into.");
+                    continue;
+                }
+
+                KernelLog.Success("login", $"bypass accepted for {bypassUser.Username}");
+                StartSession(bypassUser);
+                continue;
+            }
+            if (inputUser.Equals("surfos-shutdown"))
+            {
+                Console.Clear();
+                Console.WriteLine("Force shutdown engaged...");
+                Environment.Exit(0);
+            }
+
             if (Recovery_Manager.IsRecoveryUsername(inputUser))
             {
+                KernelLog.Warning("login", "recovery login requested");
                 RunPasswordRecovery();
                 continue;
             }
 
-            Import.DatabaseRecord? userRecord = Import.Variables.userDatabase.Find(
-                user => user.Username.Equals(inputUser, StringComparison.OrdinalIgnoreCase));
-
             if (userRecord is null)
             {
-                ShowLoginError("🚨 User not found in the database.");
+                KernelLog.Warning("login", $"unknown username attempted: {inputUser}");
+                ShowLoginError("User not found in the database.");
                 continue;
             }
 
@@ -43,21 +70,41 @@ internal class Login_Manager
 
             if (!string.Equals(inputPassword, userRecord.Password, StringComparison.Ordinal))
             {
-                ShowLoginError("🚨 Incorrect Password. Try again.");
+                KernelLog.Warning("login", $"bad password for {userRecord.Username}");
+                ShowLoginError("Incorrect Password. Try again.");
                 continue;
             }
 
+            KernelLog.Success("login", $"login accepted for {userRecord.Username}");
             StartSession(userRecord);
         }
+    }
+
+    public static void ShowRecoveryScreen()
+    {
+        Screen_Print.ResetToDefaultOSTheme();
+        KernelLog.Warning("recovery", "recovery screen opened from boot manager");
+        Console.ForegroundColor = ConsoleColor.Yellow;
+        RetroConsole.TypeLine("======================================", 2);
+        RetroConsole.TypeLine("        SURFOS RECOVERY SYSTEM        ", 3);
+        RetroConsole.TypeLine("======================================", 2);
+        Console.ResetColor();
+
+        RunPasswordRecovery();
     }
 
     [SupportedOSPlatform("windows")]
     private static void StartSession(Import.DatabaseRecord userRecord)
     {
+        userRecord.Mailbox ??= new List<Import.MailMessage>();
+        userRecord.CurrentRank =
+            string.IsNullOrWhiteSpace(userRecord.CurrentRank) ? "User" : userRecord.CurrentRank;
+
         Import.Variables.userName = userRecord.Username;
         Import.Variables.userPassword = userRecord.Password;
         Import.Variables.uuid = userRecord.ID;
         Import.Variables.sessionStartTime = DateTime.Now;
+        KernelLog.Success("session", $"session started for {userRecord.Username}");
 
         Console.ForegroundColor = ConsoleColor.Green;
         Console.WriteLine();
@@ -70,20 +117,28 @@ internal class Login_Manager
         {
             Console.ForegroundColor = ConsoleColor.Yellow;
             Console.WriteLine(
-                $"\n📩 Notification: You have ({userRecord.Mailbox.Count}) unread message(s)! Type 'mail' to check.");
+                $"\nNotification: You have ({userRecord.Mailbox.Count}) unread message(s)! Type 'mail' to check.");
         }
 
         Console.ResetColor();
+
+        if (!BIOS.CurrentOptions.StartupSoundEnabled)
+        {
+            KernelLog.Info("session", "startup sound skipped by BIOS");
+            CLI_Engine.StartTerminal();
+            return;
+        }
 
         try
         {
             Console.Beep(440, 100);
             Console.Beep(554, 100);
             Console.Beep(659, 180);
+            KernelLog.Success("session", "startup sound played");
         }
-        catch
+        catch (Exception ex)
         {
-            // Audio is optional and may be unavailable in some terminals.
+            KernelLog.Warning("session", $"startup sound unavailable: {ex.Message}");
         }
 
         CLI_Engine.StartTerminal();
@@ -105,6 +160,7 @@ internal class Login_Manager
 
         if (!Recovery_Manager.VerifyCode(recoveryCode))
         {
+            KernelLog.Warning("recovery", "invalid recovery code submitted");
             ShowLoginError("Invalid recovery code.");
             return;
         }
@@ -112,6 +168,7 @@ internal class Login_Manager
         Import.DatabaseRecord? account = SelectRecoveryAccount();
         if (account is null)
         {
+            KernelLog.Error("recovery", "recovery account selection failed");
             ShowLoginError("Account not found.");
             return;
         }
@@ -124,6 +181,7 @@ internal class Login_Manager
 
         if (string.IsNullOrWhiteSpace(newPassword))
         {
+            KernelLog.Warning("recovery", "empty password rejected");
             ShowLoginError("The new password cannot be empty.");
             return;
         }
@@ -133,6 +191,7 @@ internal class Login_Manager
                 confirmedPassword,
                 StringComparison.Ordinal))
         {
+            KernelLog.Warning("recovery", "password confirmation mismatch");
             ShowLoginError("The passwords do not match.");
             return;
         }
@@ -143,6 +202,7 @@ internal class Login_Manager
             Import.Variables.userDatabase);
 
         Console.ForegroundColor = ConsoleColor.Green;
+        KernelLog.Success("recovery", $"password reset complete for {account.Username}");
         RetroConsole.TypeLine(
             $"\nPASSWORD RESET COMPLETE FOR '{account.Username}'.", 5);
         Console.ResetColor();

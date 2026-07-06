@@ -99,7 +99,7 @@ namespace SurfOS2
 
                 GetCurrentConsoleFontEx(hnd, false, ref fontInfo);
 
-                fontInfo.FaceName = fontName;
+                fontInfo.FaceName = GetPathSafeFontName(fontName);
 
                 // 🌟 FIX: Force a larger default size! (24 is usually a great sweet spot)
                 fontInfo.dwFontSizeY = 24;
@@ -108,6 +108,18 @@ namespace SurfOS2
                 SetCurrentConsoleFontEx(hnd, false, ref fontInfo);
             }
             catch { }
+        }
+
+        private static string GetPathSafeFontName(string fontName)
+        {
+            if (fontName.Equals("MS Gothic", StringComparison.OrdinalIgnoreCase) ||
+                fontName.Equals("MS PGothic", StringComparison.OrdinalIgnoreCase) ||
+                fontName.Equals("MS UI Gothic", StringComparison.OrdinalIgnoreCase))
+            {
+                return "Consolas";
+            }
+
+            return string.IsNullOrWhiteSpace(fontName) ? "Consolas" : fontName;
         }
 
         /// <summary>

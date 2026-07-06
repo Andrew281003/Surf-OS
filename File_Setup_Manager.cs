@@ -15,11 +15,18 @@ namespace SurfOS2
 
                 // --- Make Folders ---
                 Directory.CreateDirectory(mainFolder);
+                KernelLog.Initialize(mainFolder);
+                KernelLog.Info("install", "installation directory created");
                 Directory.CreateDirectory(Path.Combine(mainFolder, "preVersions"));
                 
                 string packagesDirectory = Path.Combine(mainFolder, "Packages");
                 Directory.CreateDirectory(packagesDirectory);
+                Directory.CreateDirectory(Path.Combine(mainFolder, "logs"));
+                Directory.CreateDirectory(Path.Combine(mainFolder, "apps", "packages"));
+                Directory.CreateDirectory(Path.Combine(mainFolder, "music"));
+                Directory.CreateDirectory(Path.Combine(mainFolder, "music", "playlists"));
                 RetroConsole.Spinner("FORMATTING SYSTEM DIRECTORIES", 350);
+                KernelLog.Success("install", "system directories formatted");
 
                 // 1. Write Database (Now as a List!)
                 List<Import.DatabaseRecord> dbList =
@@ -34,6 +41,7 @@ namespace SurfOS2
                 ];
                 Import.Variables.userDatabase = dbList;
                 JsonStorage.Write(Path.Combine(mainFolder, "database.json"), dbList);
+                KernelLog.Success("install", "user database written");
                 RetroConsole.Spinner("WRITING USER DATABASE", 300);
 
                 // 2. Write System Options
@@ -51,10 +59,12 @@ namespace SurfOS2
                 string recoveryCode =
                     Recovery_Manager.ConfigureNewInstallation(optionsData);
                 JsonStorage.Write(Path.Combine(mainFolder, "options.json"), optionsData);
+                KernelLog.Success("install", "system configuration written");
                 RetroConsole.Spinner("WRITING SYSTEM CONFIGURATION", 300);
 
                 // 3. Write Installer Feedback flag
                 File.WriteAllText(Path.Combine(mainFolder, "installer_feedback.json"), "{\"Installed\": true}");
+                KernelLog.Success("install", "installer feedback flag written");
 
                 // 4. Seed Default Theme Packs
                 var holyPack = new Import.SurfTheme {
@@ -73,6 +83,7 @@ namespace SurfOS2
                 };
                 JsonStorage.Write(Path.Combine(packagesDirectory, "UnHolySurf.json"), unholyPack);
                 RetroConsole.ProgressBar("COPYING THEME PACKAGES", 18, 15);
+                KernelLog.Success("install", "theme packages copied");
 
                 // Proceed to show UI
                 Screen_Print.Print_Selected_Package();
@@ -80,6 +91,7 @@ namespace SurfOS2
             }
             catch (Exception error) when (error.Message.Contains("access"))
             {
+                KernelLog.Error("install", $"installation failed: {error}");
                 Console.Clear();
                 Console.WriteLine($"I'm so sorry. I cannot start the setup. Error: \n\n{error.Message}\n");
                 Console.WriteLine("Please start the program as an administrator.");

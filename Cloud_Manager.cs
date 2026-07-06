@@ -41,7 +41,7 @@ namespace SurfOS2
         /// <summary>
         /// Initializes the global connection loop to Firestore using the local key file.
         /// </summary>
-        public static void InitializeCloud()
+        public static void InitializeCloud(bool silent = false)
         {
             try
             {
@@ -50,11 +50,14 @@ namespace SurfOS2
 
                 if (!File.Exists(keyPath))
                 {
-                    Console.ForegroundColor = ConsoleColor.Red;
-                    Console.WriteLine("🚨 Cloud Boot Error: 'secrets.json' was not found in the operating path.");
-                    Console.WriteLine($"🔍 System is looking inside: {AppDomain.CurrentDomain.BaseDirectory}");
-                    Console.WriteLine("💡 Make sure your credential key is placed inside the execution folder!");
-                    Console.ResetColor();
+                    if (!silent)
+                    {
+                        Console.ForegroundColor = ConsoleColor.Red;
+                        Console.WriteLine("🚨 Cloud Boot Error: 'secrets.json' was not found in the operating path.");
+                        Console.WriteLine($"🔍 System is looking inside: {AppDomain.CurrentDomain.BaseDirectory}");
+                        Console.WriteLine("💡 Make sure your credential key is placed inside the execution folder!");
+                        Console.ResetColor();
+                    }
                     return;
                 }
 
@@ -66,9 +69,16 @@ namespace SurfOS2
             }
             catch (Exception ex)
             {
-                Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine($"🚨 Cloud Initialization failed: {ex.Message}");
-                Console.ResetColor();
+                if (!silent)
+                {
+                    Console.ForegroundColor = ConsoleColor.Red;
+                    Console.WriteLine($"🚨 Cloud Initialization failed: {ex.Message}");
+                    Console.ResetColor();
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine($"[Cloud Initialization Error]: {ex.Message}");
+                }
             }
         }
 

@@ -6,6 +6,7 @@ internal static class JsonStorage
 {
     private static readonly JsonSerializerOptions SerializerOptions = new()
     {
+        PropertyNameCaseInsensitive = true,
         WriteIndented = true
     };
 

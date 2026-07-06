@@ -1,12 +1,21 @@
 ﻿using System;
 using System.Threading;
+using SurfOS2.os_Apps;
 
 namespace SurfOS2
 {
+    internal sealed class DesktopMenuItem
+    {
+        public string Label { get; init; } = string.Empty;
+        public Action Launch { get; init; } = () => { };
+    }
+
     internal class Desktop_Environment
     {
         public static void StartGUI()
         {
+            try
+            {
             Console.Clear();
             Console.ForegroundColor = ConsoleColor.Cyan;
             RetroConsole.Spinner("LOADING VIDEO DRIVER", 300);
@@ -15,8 +24,8 @@ namespace SurfOS2
             Console.ResetColor();
 
             int selectedIndex = 0;
-            string[] apps = { "💻 Terminal (Exit GUI)", "🖥️ System Monitor", "📬 Mailbox", "🛒 Surf Shop", "⛏️ Crypto Miner", "📅 Calendar & Clock" };
             bool inGUI = true;
+            List<DesktopMenuItem> apps = BuildDesktopMenu(() => inGUI = false);
 
             Console.CursorVisible = false; // Hide the blinking typing cursor for a real GUI feel
 
@@ -48,19 +57,25 @@ namespace SurfOS2
                 Screen_Print.ResetColors();
 
                 // 3. Render the App "Icons"
-                for (int i = 0; i < apps.Length; i++)
+                apps = BuildDesktopMenu(() => inGUI = false);
+                if (selectedIndex >= apps.Count)
+                {
+                    selectedIndex = apps.Count - 1;
+                }
+
+                for (int i = 0; i < apps.Count; i++)
                 {
                     if (i == selectedIndex)
                     {
                         // Highlight the selected app
                         Console.BackgroundColor = ConsoleColor.DarkGray;
                         Console.ForegroundColor = ConsoleColor.White;
-                        Console.WriteLine($"   > [ {apps[i]} ] <   ");
+                        Console.WriteLine($"   > [ {apps[i].Label} ] <   ");
                         Screen_Print.ResetColors();
                     }
                     else
                     {
-                        Console.WriteLine($"     [ {apps[i]} ]     ");
+                        Console.WriteLine($"     [ {apps[i].Label} ]     ");
                     }
                 }
 
@@ -74,52 +89,30 @@ namespace SurfOS2
                 if (key == ConsoleKey.DownArrow) { selectedIndex++; }
 
                 // Wrap around the menu if they go too far up or down
-                if (selectedIndex < 0) selectedIndex = apps.Length - 1;
-                if (selectedIndex >= apps.Length) selectedIndex = 0;
+                if (selectedIndex < 0) selectedIndex = apps.Count - 1;
+                if (selectedIndex >= apps.Count) selectedIndex = 0;
 
                 // 5. Execute Apps when clicked!
                 if (key == ConsoleKey.Enter)
                 {
                     Console.Clear();
-                    RetroConsole.Spinner($"OPENING {apps[selectedIndex]}", 220, ConsoleColor.Cyan);
-                    bool dummyRun = true;
-
-                    if (selectedIndex == 0) // Terminal
-                    {
-                        inGUI = false; 
-                    }
-                    else if (selectedIndex == 1) // Sys Monitor
-                    {
-                        CLI_Engine.ExecuteCommand("sys", ref dummyRun, true);
-                        PauseForGUI();
-                    }
-                    else if (selectedIndex == 2) // Mail
-                    {
-                        CLI_Engine.ExecuteCommand("mail", ref dummyRun, true);
-                        PauseForGUI();
-                    }
-                    else if (selectedIndex == 3) // Shop
-                    {
-                        CLI_Engine.ExecuteCommand("shop", ref dummyRun, true);
-                        PauseForGUI();
-                    }
-                    else if (selectedIndex == 4) // Mine
-                    {
-                        CLI_Engine.ExecuteCommand("mine", ref dummyRun, true);
-                        PauseForGUI();
-                    }
-                    else if (selectedIndex == 5) // Calendar
-                    {
-                        CLI_Engine.ExecuteCommand("clock", ref dummyRun, true);
-                        CLI_Engine.ExecuteCommand("calendar", ref dummyRun, true);
-                        PauseForGUI();
-                    }
+                    RetroConsole.Spinner($"OPENING {apps[selectedIndex].Label}", 220, ConsoleColor.Cyan);
+                    apps[selectedIndex].Launch();
                 }
             }
 
             Console.CursorVisible = true; // Turn the typing cursor back on for the terminal!
             Console.Clear();
             Screen_Print.Print_Selected_Package(); // Redraw the CLI logo
+            }
+            catch (Exception ex)
+            {
+                Console.CursorVisible = true;
+                KernelPanic.ShowAndHandle(
+                    ex,
+                    "Desktop_Environment.cs",
+                    "Reboot SurfOS. If the desktop keeps crashing, boot to the terminal and avoid startx until logs are reviewed.");
+            }
         }
 
         private static void PauseForGUI()
@@ -128,6 +121,95 @@ namespace SurfOS2
             Console.WriteLine("\n[Press ENTER to close window and return to Desktop...]");
             Screen_Print.ResetColors();
             Console.ReadLine();
+        }
+
+        private static List<DesktopMenuItem> BuildDesktopMenu(Action exitGui)
+        {
+            List<DesktopMenuItem> menu =
+            [
+                new()
+                {
+                    Label = "Terminal (Exit GUI)",
+                    Launch = exitGui
+                },
+                new()
+                {
+                    Label = "SurfCode IDE",
+                    Launch = () =>
+                    {
+                        Console.CursorVisible = true;
+                        using (ProcessManager.StartProcess(
+                                   "SurfCode IDE",
+                                   96,
+                                   supportsKill: true))
+                        {
+                            CodeEditor.Launch();
+                        }
+                        Console.CursorVisible = false;
+                    }
+                },
+                new()
+                {
+                    Label = "System Monitor",
+                    Launch = () => RunDesktopCommand("sys")
+                },
+                new()
+                {
+                    Label = "Mailbox",
+                    Launch = () => RunDesktopCommand("mail")
+                },
+                new()
+                {
+                    Label = "Music Player",
+                    Launch = () => RunDesktopCommand("music")
+                },
+                new()
+                {
+                    Label = "Surf Store",
+                    Launch = () => SurfStore.Open()
+                },
+                new()
+                {
+                    Label = "Crypto Miner",
+                    Launch = () => RunDesktopCommand("mine")
+                },
+                new()
+                {
+                    Label = "Calendar & Clock",
+                    Launch = () =>
+                    {
+                        RunDesktopCommand("clock", pauseAfter: false);
+                        RunDesktopCommand("calendar");
+                    }
+                }
+            ];
+
+            foreach (DesktopPackageEntry package in Package_Manager.GetDesktopPackages())
+            {
+                string label = menu.Any(item => item.Label.Equals(
+                    package.DisplayName,
+                    StringComparison.OrdinalIgnoreCase))
+                        ? $"Package: {package.DisplayName}"
+                        : package.DisplayName;
+
+                menu.Add(new DesktopMenuItem
+                {
+                    Label = label,
+                    Launch = () => RunDesktopCommand(package.Command)
+                });
+            }
+
+            return menu;
+        }
+
+        private static void RunDesktopCommand(string command, bool pauseAfter = true)
+        {
+            bool dummyRun = true;
+            CLI_Engine.ExecuteCommand(command, ref dummyRun, true);
+            if (pauseAfter)
+            {
+                PauseForGUI();
+            }
         }
     }
 }

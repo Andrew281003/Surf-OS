@@ -5,7 +5,6 @@ namespace SurfOS2;
 internal static class Time_Manager
 {
     private static readonly object AlarmLock = new();
-    private static int _alarmDaemonStarted;
     private static string? _cachedTimeZoneName;
     private static TimeZoneInfo? _cachedTimeZone;
 
@@ -158,26 +157,11 @@ internal static class Time_Manager
     }
 
     [SupportedOSPlatform("windows")]
-    public static void StartAlarmDaemon()
+    public static void TriggerDueAlarms()
     {
-        if (Interlocked.Exchange(ref _alarmDaemonStarted, 1) == 1)
-        {
-            return;
-        }
-
         string alarmsPath = GetAlarmsPath();
         EnsureAlarmsLoaded(alarmsPath);
-
-        _ = Task.Run(async () =>
-        {
-            using PeriodicTimer timer = new(TimeSpan.FromSeconds(30));
-
-            do
-            {
-                TriggerDueAlarms(alarmsPath);
-            }
-            while (await timer.WaitForNextTickAsync());
-        });
+        TriggerDueAlarms(alarmsPath);
     }
 
     [SupportedOSPlatform("windows")]

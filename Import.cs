@@ -16,6 +16,7 @@ namespace Import
         public static string defaultTheme = "HolySurf";
         public static string activePromptStyle = "Standard";
         public static string timeZone = "Local"; 
+        public static bool safeMode = false;
 
         public static ConsoleColor activeForegroundColor = ConsoleColor.Gray;
         public static ConsoleColor activeBackgroundColor = ConsoleColor.Black;

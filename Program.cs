@@ -9,29 +9,60 @@ internal class Program
 {
     public static void Main()
     {
-        Console.OutputEncoding = Encoding.UTF8;
-        RetroConsole.Initialize();
-        Core_Engine.MaximizeWindow();
-        RetroConsole.BootSequence();
-        Cloud_Manager.StartInBackground();
-
-        string desktopPath = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
-            "SurfOS");
-        string documentsPath = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
-            "SurfOS");
-
-        string? targetPath = new[] { desktopPath, documentsPath, @"C:\SurfOS" }
-            .FirstOrDefault(IsSurfOsInstallation);
-
-        if (targetPath is null)
+        try
         {
-            Install_Setup.Install_WizardP1();
-            return;
-        }
+            Console.Title = "SurfOS - BIOS";
+            Console.OutputEncoding = Encoding.UTF8;
+            RetroConsole.Initialize();
+            KernelLog.Info("boot", "SurfOS process started");
+            Core_Engine.MaximizeWindow();
+            KernelLog.Success("boot", "console initialized");
 
-        LoadSettings(Path.Combine(targetPath, "options.json"));
+            string desktopPath = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
+                "SurfOS");
+            string documentsPath = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+                "SurfOS");
+
+            string? targetPath = new[] { desktopPath, documentsPath, @"C:\SurfOS" }
+                .FirstOrDefault(IsSurfOsInstallation);
+
+            if (targetPath is null)
+            {
+                KernelLog.Warning("boot", "no existing SurfOS installation found; launching installer");
+                RetroConsole.BootSequence();
+                Install_Setup.Install_WizardP1();
+                return;
+            }
+
+            Import.Variables.installPath = targetPath;
+            KernelLog.Initialize(targetPath);
+            KernelLog.Info("boot", $"installation located at {targetPath}");
+
+            BiosOptions biosOptions = BIOS.LoadOptions(targetPath);
+            KernelLog.Info("boot", "BIOS options loaded");
+            if (biosOptions.BootAnimationEnabled)
+            {
+                KernelLog.Info("boot", "running boot animation sequence");
+                RetroConsole.BootSequence();
+            }
+            else
+            {
+                KernelLog.Info("boot", "boot animation disabled by BIOS");
+                Console.Clear();
+            }
+
+            LoadSettings(Path.Combine(targetPath, "options.json"));
+        }
+        catch (Exception ex)
+        {
+            KernelLog.Error("crash", ex.ToString());
+            KernelPanic.ShowAndHandle(
+                ex,
+                "Program.cs",
+                "Reboot SurfOS. If the panic repeats, start Safe Mode and inspect dmesg errors.");
+        }
     }
 
     private static bool IsSurfOsInstallation(string path)
@@ -43,7 +74,8 @@ internal class Program
     {
         if (!File.Exists(filePath))
         {
-            Console.WriteLine("Error: options.json is missing! 🚨");
+            KernelLog.Error("boot", "options.json is missing");
+            Console.WriteLine("Error: options.json is missing.");
             return;
         }
 
@@ -61,14 +93,17 @@ internal class Program
                     string.IsNullOrEmpty(options.DefaultTheme) ? "HolySurf" : options.DefaultTheme;
                 Import.Variables.timeZone =
                     string.IsNullOrEmpty(options.TimeZone) ? "Local" : options.TimeZone;
+                KernelLog.Success("boot", "system options loaded");
 
                 options.NumRun = Import.Variables.numRun;
                 JsonStorage.Write(filePath, options);
+                KernelLog.Info("boot", $"boot count updated to {Import.Variables.numRun}");
                 string? newRecoveryCode =
                     Recovery_Manager.EnsureConfigured(options, filePath);
 
                 if (newRecoveryCode is not null)
                 {
+                    KernelLog.Warning("recovery", "new recovery code generated");
                     Recovery_Manager.DisplayRecoveryCode(newRecoveryCode);
                 }
             }
@@ -79,8 +114,17 @@ internal class Program
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error reading OS files! ({ex.Message}) 🚨");
+            KernelLog.Error("boot", $"error reading OS files: {ex}");
+            Console.WriteLine($"Error reading OS files! ({ex.Message})");
             return;
+        }
+
+        KernelLog.Info("boot", "opening boot manager");
+        BootMode bootMode = Boot_Manager.ShowBootMenu(filePath);
+        KernelLog.Info("boot", $"boot manager selected {bootMode}");
+        if (bootMode == BootMode.RecoveryMode)
+        {
+            Login_Manager.ShowRecoveryScreen();
         }
 
         Login_Manager.ShowLoginScreen();
@@ -90,6 +134,7 @@ internal class Program
     {
         if (!File.Exists(databasePath))
         {
+            KernelLog.Warning("boot", "database.json is missing");
             return;
         }
 
@@ -97,19 +142,23 @@ internal class Program
         {
             Import.Variables.userDatabase =
                 JsonStorage.Read<List<Import.DatabaseRecord>>(databasePath) ?? [];
+            KernelLog.Success("boot", $"loaded {Import.Variables.userDatabase.Count} user profile(s)");
         }
         catch (JsonException)
         {
+            KernelLog.Warning("boot", "legacy single-record database detected");
             Import.DatabaseRecord? oldRecord =
                 JsonStorage.Read<Import.DatabaseRecord>(databasePath);
 
             if (oldRecord is null)
             {
+                KernelLog.Error("boot", "database migration failed: old record was null");
                 return;
             }
 
             Import.Variables.userDatabase = [oldRecord];
             JsonStorage.Write(databasePath, Import.Variables.userDatabase);
+            KernelLog.Success("boot", "migrated user database to list format");
         }
     }
 }

@@ -1,3 +1,5 @@
+using System.Net.NetworkInformation;
+using System.Runtime.InteropServices;
 using System.Text;
 
 namespace SurfOS2;
@@ -7,6 +9,8 @@ internal static class RetroConsole
     private static readonly string[] SpinnerFrames = ["|", "/", "-", "\\"];
     private static readonly TextWriter StandardOutput = Console.Out;
     private static readonly AnimatedTextWriter AnimatedOutput = new(StandardOutput);
+    private const int TextAnimationSpeedMultiplier = 2;
+    private const int CommandOutputLineDelayMilliseconds = 12;
     private static int _commandOutputDepth;
     private static bool _skipCommandOutputAnimation;
 
@@ -52,7 +56,7 @@ internal static class RetroConsole
                 return;
             }
 
-            Thread.Sleep(character is '.' or ':' ? delayMilliseconds * 2 : delayMilliseconds);
+            Thread.Sleep(GetTextDelay(character, delayMilliseconds));
         }
     }
 
@@ -70,20 +74,138 @@ internal static class RetroConsole
         }
     }
 
+    [DllImport("user32.dll")]
+    private static extern short GetAsyncKeyState(int vKey);
+
+    private const int VK_LSHIFT = 0xA0; // HEX Decimal key values
+    private const int VK_RSHIFT = 0xA1; // same for this guy
+    // This is needed so the assembly can see exactly which key was pressed, in this case its [SHIFT]
+
+    private static bool IsShiftHeld()
+    {
+        return (GetAsyncKeyState(VK_LSHIFT) & 0x8000) != 0 ||
+               (GetAsyncKeyState(VK_RSHIFT) & 0x8000) != 0;
+    }
+
     public static void BootSequence()
     {
+        string cpuStatus = CheckCpu();
+        string memoryStatus = CheckMemory(); ;
+        string keyboardStatus = CheckKeyboard();
+        string volumeStatus = CheckInstallVolume();
+        string networkStatus = CheckNetworkAdapter();
+
         Console.Clear();
         Console.ForegroundColor = ConsoleColor.Green;
-        TypeLine("SURF BIOS v2.6  (C) 1984-2026 SURF SYSTEMS", 3);
-        TypeLine($"CPU: {Environment.ProcessorCount} LOGICAL PROCESSORS ........ OK", 2);
-        TypeLine("MEMORY TEST ................................ OK", 2);
-        TypeLine("KEYBOARD CONTROLLER ........................ OK", 2);
-        TypeLine("MOUNTING SURFOS SYSTEM VOLUME .............. OK", 2);
-        TypeLine("INITIALIZING NETWORK ADAPTER ................ BACKGROUND", 2);
+        TypeLine("SURF BIOS v2.6 \n\n\n\n", 3);
+        TypeLine($"CPU: {Environment.ProcessorCount} LOGICAL PROCESSORS ........ {cpuStatus}", 2);
+        TypeLine($"MEMORY TEST ................................ {memoryStatus}", 2);
+        TypeLine($"KEYBOARD CONTROLLER ........................ {keyboardStatus}", 2);
+        TypeLine($"MOUNTING SURFOS SYSTEM VOLUME .............. {volumeStatus}", 2);
+        TypeLine($"INITIALIZING NETWORK ADAPTER ................ {networkStatus}", 2);
         Console.WriteLine();
         ProgressBar("LOADING KERNEL", 18, 12);
         Console.ResetColor();
+        if (IsShiftHeld())
+        {
+            string error = string.Empty;
+            int amount = 0;
+            if (cpuStatus != "OK") { error += "\ncpu"; amount++; }
+            if (memoryStatus != "OK") { error += "\nmemory"; amount++; }
+            if (keyboardStatus != "OK") { error += "\nkeyboard"; amount++; }
+            if (volumeStatus != "OK") { error += "\nvolume"; amount++; }
+
+            Console.ReadKey();
+            Console.WriteLine("BIOS Log: Launching...");
+            BIOS.Boot(error, amount);
+        }
         Thread.Sleep(100);
+    }
+    private static string CheckCpu()
+    {
+        return Environment.ProcessorCount > 0 ? "OK" : "FAIL";
+    }
+
+    private static string CheckMemory()
+    {
+        try
+        {
+            GCMemoryInfo memoryInfo = GC.GetGCMemoryInfo();
+            long availableMemory = memoryInfo.TotalAvailableMemoryBytes;
+
+            return availableMemory <= 0 || availableMemory >= 64L * 1024L * 1024L
+                ? "OK"
+                : "LOW";
+        }
+        catch
+        {
+            return "WARN";
+        }
+    }
+
+    private static string CheckKeyboard()
+    {
+        try
+        {
+            _ = Console.KeyAvailable;
+            return Console.IsInputRedirected ? "REDIRECTED" : "OK";
+        }
+        catch
+        {
+            return "WARN";
+        }
+    }
+
+    private static string CheckInstallVolume()
+    {
+        string installPath = Import.Variables.installPath;
+        if (string.IsNullOrWhiteSpace(installPath) || !Directory.Exists(installPath))
+        {
+            return "MISSING";
+        }
+
+        string[] requiredPaths =
+        [
+            Path.Combine(installPath, "options.json"),
+            Path.Combine(installPath, "database.json"),
+            Path.Combine(installPath, "installer_feedback.json"),
+            Path.Combine(installPath, "Packages")
+        ];
+
+        if (requiredPaths.Any(path => !File.Exists(path) && !Directory.Exists(path)))
+        {
+            return "REPAIR";
+        }
+
+        try
+        {
+            string probePath = Path.Combine(installPath, $".surfos_probe_{Guid.NewGuid():N}.tmp");
+            File.WriteAllText(probePath, "ok");
+            File.Delete(probePath);
+        }
+        catch
+        {
+            return "READONLY";
+        }
+
+        return "OK";
+    }
+
+    private static string CheckNetworkAdapter()
+    {
+        try
+        {
+            bool hasActiveAdapter = NetworkInterface.GetAllNetworkInterfaces()
+                .Any(networkInterface =>
+                    networkInterface.NetworkInterfaceType != NetworkInterfaceType.Loopback &&
+                    networkInterface.OperationalStatus == OperationalStatus.Up);
+
+            return hasActiveAdapter ? "OK" : "OFFLINE";
+        }
+        catch
+        {
+            return "WARN";
+        }
     }
 
     public static void ProgressBar(
@@ -190,6 +312,12 @@ internal static class RetroConsole
         !_skipCommandOutputAnimation &&
         Volatile.Read(ref _commandOutputDepth) > 0;
 
+    private static int GetTextDelay(char character, int delayMilliseconds)
+    {
+        int adjustedDelay = Math.Max(1, delayMilliseconds / TextAnimationSpeedMultiplier);
+        return character is '.' or ':' ? adjustedDelay + 1 : adjustedDelay;
+    }
+
     private sealed class AnimatedTextWriter(TextWriter innerWriter) : TextWriter
     {
         public override Encoding Encoding => innerWriter.Encoding;
@@ -197,7 +325,7 @@ internal static class RetroConsole
         public override void Write(char value)
         {
             innerWriter.Write(value);
-            DelayFor(value);
+            DelayAfterLine(value);
         }
 
         public override void Write(string? value)
@@ -216,19 +344,21 @@ internal static class RetroConsole
             foreach (char character in value)
             {
                 innerWriter.Write(character);
-                DelayFor(character);
+                DelayAfterLine(character);
             }
         }
 
         public override void WriteLine()
         {
             innerWriter.WriteLine();
+            DelayAfterLine('\n');
         }
 
         public override void WriteLine(string? value)
         {
             Write(value);
             innerWriter.WriteLine();
+            DelayAfterLine('\n');
         }
 
         public override void Flush()
@@ -236,9 +366,9 @@ internal static class RetroConsole
             innerWriter.Flush();
         }
 
-        private static void DelayFor(char character)
+        private static void DelayAfterLine(char character)
         {
-            if (!ShouldAnimateCommandOutput || character is '\r' or '\n')
+            if (!ShouldAnimateCommandOutput || character is not '\n')
             {
                 return;
             }
@@ -249,7 +379,7 @@ internal static class RetroConsole
                 return;
             }
 
-            Thread.Sleep(character is '.' or ':' ? 3 : 1);
+            Thread.Sleep(CommandOutputLineDelayMilliseconds);
         }
     }
 
