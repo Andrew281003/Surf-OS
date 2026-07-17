@@ -1,12 +1,5 @@
 namespace SurfOS2;
 
-internal sealed class DesktopPackageEntry
-{
-    public string Name { get; init; } = string.Empty;
-    public string DisplayName { get; init; } = string.Empty;
-    public string Command { get; init; } = string.Empty;
-}
-
 internal static class Package_Manager
 {
     public static void Initialize()
@@ -77,24 +70,6 @@ internal static class Package_Manager
                 PrintUsage();
                 break;
         }
-    }
-
-    public static IReadOnlyList<DesktopPackageEntry> GetDesktopPackages()
-    {
-        return CloudRepositoryManager.LoadInstalledState()
-            .Packages
-            .Where(package => package.DesktopEnabled)
-            .Where(package => !string.IsNullOrWhiteSpace(package.Command))
-            .OrderBy(package => package.DesktopTitle, StringComparer.OrdinalIgnoreCase)
-            .Select(package => new DesktopPackageEntry
-            {
-                Name = package.Id,
-                DisplayName = string.IsNullOrWhiteSpace(package.DesktopTitle)
-                    ? package.Name
-                    : package.DesktopTitle,
-                Command = package.Command
-            })
-            .ToList();
     }
 
     private static void Search(string query)
@@ -186,7 +161,6 @@ internal static class Package_Manager
         Console.WriteLine($"Author         : {package.Author}");
         Console.WriteLine($"Category       : {package.Category}");
         Console.WriteLine($"Installed      : {(installed is null ? "no" : $"yes ({installed.Version})")}");
-        Console.WriteLine($"Desktop enabled: {(package.DesktopEnabled ? "yes" : "no")}");
         Console.WriteLine($"Install path   : {package.InstallPath}");
         Console.WriteLine($"Minimum SurfOS : {package.MinimumSurfOSVersion}");
         Console.WriteLine($"Dependencies   : {string.Join(", ", package.Dependencies)}");

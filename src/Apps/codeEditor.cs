@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.Runtime.Versioning;
-using System.Security.Cryptography.X509Certificates;
 using System.Text.RegularExpressions;
 
 namespace SurfOS2.os_Apps
@@ -22,7 +21,7 @@ namespace SurfOS2.os_Apps
             {
                 KernelPanic.ShowAndHandle(
                     ex,
-                    "os-Apps/codeEditor.cs",
+                    "src/Apps/codeEditor.cs",
                     "Reboot SurfOS. If SurfCode keeps crashing, start Safe Mode and check the project files.");
             }
         }

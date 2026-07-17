@@ -146,6 +146,11 @@ internal static class VirtualFileSystem
             }
             else
             {
+                if (!Partition_Manager.CanAllocate(GetRoot(), 0, out error))
+                {
+                    return false;
+                }
+
                 File.WriteAllText(realPath, string.Empty);
             }
 
@@ -198,6 +203,57 @@ internal static class VirtualFileSystem
         }
     }
 
+    public static bool RemoveDirectory(string path, out string error)
+    {
+        lock (SyncRoot)
+        {
+            error = string.Empty;
+            string virtualPath = NormalizeVirtualPath(path);
+
+            string[] protectedDirectories =
+            [
+                "/", "/home", "/system", "/apps", "/themes",
+                "/logs", "/temp", "/mail", GetHomePath()
+            ];
+            if (protectedDirectories.Contains(virtualPath, StringComparer.OrdinalIgnoreCase))
+            {
+                error = $"Protected SurfOS directory cannot be removed: {virtualPath}";
+                return false;
+            }
+
+            if (_currentDirectory.Equals(virtualPath, StringComparison.OrdinalIgnoreCase) ||
+                _currentDirectory.StartsWith(
+                    virtualPath.TrimEnd('/') + "/",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                error = "Cannot remove the current directory or one of its parent directories.";
+                return false;
+            }
+
+            string realPath = ResolveVirtualPath(virtualPath);
+            if (File.Exists(realPath))
+            {
+                error = "rmdir only removes directories. Use rm for files.";
+                return false;
+            }
+
+            if (!Directory.Exists(realPath))
+            {
+                error = $"Directory not found: {virtualPath}";
+                return false;
+            }
+
+            if (Directory.EnumerateFileSystemEntries(realPath).Any())
+            {
+                error = $"Directory is not empty: {virtualPath}";
+                return false;
+            }
+
+            Directory.Delete(realPath, recursive: false);
+            return true;
+        }
+    }
+
     public static bool Copy(string source, string destination, out string error)
     {
         lock (SyncRoot)
@@ -209,6 +265,13 @@ internal static class VirtualFileSystem
 
             if (File.Exists(sourceReal))
             {
+                long existingSize = File.Exists(destReal) ? new FileInfo(destReal).Length : 0;
+                long additionalBytes = Math.Max(0, new FileInfo(sourceReal).Length - existingSize);
+                if (!Partition_Manager.CanAllocate(GetRoot(), additionalBytes, out error))
+                {
+                    return false;
+                }
+
                 Directory.CreateDirectory(Path.GetDirectoryName(destReal) ?? GetRoot());
                 File.Copy(sourceReal, destReal, overwrite: true);
                 return true;
@@ -216,6 +279,12 @@ internal static class VirtualFileSystem
 
             if (Directory.Exists(sourceReal))
             {
+                long additionalBytes = GetDirectorySize(sourceReal);
+                if (!Partition_Manager.CanAllocate(GetRoot(), additionalBytes, out error))
+                {
+                    return false;
+                }
+
                 CopyDirectory(sourceReal, destReal);
                 return true;
             }
@@ -295,6 +364,12 @@ internal static class VirtualFileSystem
                 directory,
                 Path.Combine(destinationDirectory, Path.GetFileName(directory)));
         }
+    }
+
+    private static long GetDirectorySize(string directory)
+    {
+        return Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories)
+            .Sum(file => new FileInfo(file).Length);
     }
 
     private static string NormalizeVirtualPath(string path)

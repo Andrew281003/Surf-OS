@@ -5,7 +5,6 @@
   "description": "A hacker-style green terminal theme for SurfOS.",
   "author": "SurfOS Community",
   "command": "theme load DeepTerminal",
-  "desktopEnabled": false,
   "installKind": "theme",
   "encodedPayloadUrl": "OwEGFjBWQFoAIRwEA20LABoDPxBcBSwBQAAHbBAKFiweG0gAPAIcCiwNC1MNN0hDADI8VyIKMiA1BycrOwEsfiMIIhIcW0w1IQE3KBRfARA=",
   "targetFile": "DeepTerminal.json",

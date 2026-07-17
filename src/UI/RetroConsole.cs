@@ -13,6 +13,17 @@ internal static class RetroConsole
     private const int CommandOutputLineDelayMilliseconds = 12;
     private static int _commandOutputDepth;
     private static bool _skipCommandOutputAnimation;
+    private const int StdOutputHandle = -11;
+    private const uint EnableVirtualTerminalProcessing = 0x0004;
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr GetStdHandle(int standardHandle);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool GetConsoleMode(IntPtr consoleHandle, out uint mode);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool SetConsoleMode(IntPtr consoleHandle, uint mode);
 
     public static bool AnimationsEnabled { get; set; } =
         !Console.IsOutputRedirected && !Console.IsInputRedirected;
@@ -30,6 +41,26 @@ internal static class RetroConsole
         }
 
         return new CommandOutputScope();
+    }
+
+    public static IDisposable EnterAlternateScreen()
+    {
+        if (!OperatingSystem.IsWindows() || Console.IsOutputRedirected)
+        {
+            return NoOpScope.Instance;
+        }
+
+        IntPtr outputHandle = GetStdHandle(StdOutputHandle);
+        if (outputHandle == IntPtr.Zero || outputHandle == new IntPtr(-1) ||
+            !GetConsoleMode(outputHandle, out uint originalMode) ||
+            !SetConsoleMode(outputHandle, originalMode | EnableVirtualTerminalProcessing))
+        {
+            return NoOpScope.Instance;
+        }
+
+        StandardOutput.Write("\u001b[?1049h\u001b[2J\u001b[H");
+        StandardOutput.Flush();
+        return new AlternateScreenScope(outputHandle, originalMode);
     }
 
     public static void Type(string text, int delayMilliseconds = 8)
@@ -396,6 +427,49 @@ internal static class RetroConsole
 
             _disposed = true;
             Interlocked.Decrement(ref _commandOutputDepth);
+        }
+    }
+
+    private sealed class AlternateScreenScope : IDisposable
+    {
+        private readonly IntPtr _outputHandle;
+        private readonly uint _originalMode;
+        private bool _disposed;
+
+        public AlternateScreenScope(IntPtr outputHandle, uint originalMode)
+        {
+            _outputHandle = outputHandle;
+            _originalMode = originalMode;
+        }
+
+        public void Dispose()
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _disposed = true;
+            StandardOutput.Write("\u001b[0m\u001b[?25h\u001b[?1049l");
+            StandardOutput.Flush();
+            SetConsoleMode(_outputHandle, _originalMode);
+            try
+            {
+                Console.CursorVisible = true;
+            }
+            catch
+            {
+                // The console may be closing during shutdown/uninstall.
+            }
+        }
+    }
+
+    private sealed class NoOpScope : IDisposable
+    {
+        public static readonly NoOpScope Instance = new();
+
+        public void Dispose()
+        {
         }
     }
 }

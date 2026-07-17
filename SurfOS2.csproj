@@ -23,6 +23,13 @@
     <None Update="secrets.json">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
+    <None Update="Launch-SurfOS.cmd">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Publish-SurfOS.cmd">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+      <CopyToPublishDirectory>Never</CopyToPublishDirectory>
+    </None>
     <None Update="surfos-5b9af-firebase-adminsdk-fbsvc-fa77c78036.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>

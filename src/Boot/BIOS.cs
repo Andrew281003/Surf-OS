@@ -12,9 +12,9 @@ internal sealed class BiosOptions
 
 internal class BIOS
 {
-    private const int UiWidth = 78;
-    private const int MenuWidth = 27;
-    private const int SummaryWidth = 42;
+    private const int UiWidth = 96;
+    private const int MainPaneWidth = 64;
+    private const int HelpPaneWidth = UiWidth - MainPaneWidth - 1;
 
     private static readonly string[] MainSections =
     [
@@ -160,44 +160,45 @@ internal class BIOS
     private static void DrawMainScreen(int selectedIndex, BiosOptions options)
     {
         BeginBiosScreen();
-        DrawTitle("SURF BIOS SETUP UTILITY v2.6");
-        WriteFramedLine("Use Up/Down to select, Enter to open, Esc to exit without saving.");
-        DrawSeparator();
-        WriteFramedLine($"{Pad("MENU", MenuWidth)} | {"STATUS",-SummaryWidth}");
-        DrawSeparator();
+        DrawFirmwareHeader("Main");
+        WriteSplitLine("", "Item Specific Help");
+        WriteSplitLine("  SURF BIOS INFORMATION", new string('-', HelpPaneWidth - 4));
+        WriteSplitLine("", "");
 
         for (int index = 0; index < MainSections.Length; index++)
         {
             bool selected = index == selectedIndex;
-            string marker = selected ? ">" : " ";
-            string menuText = Truncate($"{marker} {MainSections[index]}", MenuWidth);
-            string summary = Truncate(GetSectionSummary(index, options), SummaryWidth);
-
-            Console.Write("| ");
-            if (selected)
-            {
-                Console.ForegroundColor = ConsoleColor.Black;
-                Console.BackgroundColor = ConsoleColor.Cyan;
-            }
-            else
-            {
-                Console.ForegroundColor = ConsoleColor.White;
-                Console.BackgroundColor = ConsoleColor.DarkBlue;
-            }
-
-            Console.Write(Pad(menuText, MenuWidth));
-            ResetBiosColors();
-            Console.Write(" | ");
-            Console.ForegroundColor = index >= 6 ? ConsoleColor.Yellow : ConsoleColor.Gray;
-            Console.Write(Pad(summary, SummaryWidth));
-            ResetBiosColors();
-            Console.WriteLine(" |");
+            string label = $"  {MainSections[index],-28} [ {GetSectionSummary(index, options)} ]";
+            string help = GetSectionHelp(selectedIndex, index);
+            WriteSelectableSplitLine(label, help, selected, index >= 6);
         }
 
-        DrawSeparator();
-        WriteFramedLine($"BIOS file: {Truncate(_biosPath, UiWidth - 14)}");
-        DrawBottom();
+        for (int row = MainSections.Length; row < 15; row++)
+        {
+            WriteSplitLine("", GetSectionHelp(selectedIndex, row));
+        }
+
+        DrawFirmwareFooter("[Up/Down] Choose Row    [Enter] Open / Confirm    [Esc] Exit Without Saving");
         Console.ResetColor();
+    }
+
+    private static string GetSectionHelp(int selectedIndex, int row)
+    {
+        string[] help = selectedIndex switch
+        {
+            0 => ["View machine, runtime,", "and operating system", "information."],
+            1 => ["Configure startup", "animation and the", "default boot mode."],
+            2 => ["Configure console", "sound and diagnostic", "display verbosity."],
+            3 => ["Verify the active", "SurfOS theme package", "and signature."],
+            4 => ["Inspect SurfOS files,", "storage access, and", "disk information."],
+            5 => ["Stage a reset of", "non-account SurfOS", "settings."],
+            6 => ["Commit firmware", "settings and return", "to the boot menu."],
+            7 => ["Discard unsaved", "changes and return", "to the boot menu."],
+            _ => []
+        };
+
+        int offset = row - selectedIndex;
+        return offset >= 0 && offset < help.Length ? help[offset] : string.Empty;
     }
 
     private static string GetSectionSummary(int sectionIndex, BiosOptions options)
@@ -460,32 +461,18 @@ internal class BIOS
         Func<int, string> valueProvider)
     {
         DrawDetailScreen(title);
-        Console.ForegroundColor = ConsoleColor.Gray;
-        Console.WriteLine("Use Up/Down to select, Enter/Left/Right to change, Esc to return.\n");
+        WriteBiosLine("  Use Up/Down to select. Enter or Left/Right changes the highlighted value.");
+        WriteBiosLine("");
 
         for (int index = 0; index < labels.Length; index++)
         {
             bool selected = index == selectedIndex;
-            Console.Write("  ");
-
-            if (selected)
-            {
-                Console.ForegroundColor = ConsoleColor.Black;
-                Console.BackgroundColor = ConsoleColor.Cyan;
-            }
-            else
-            {
-                Console.ForegroundColor = ConsoleColor.White;
-                Console.BackgroundColor = ConsoleColor.DarkBlue;
-            }
-
-            Console.Write(Pad($"> {labels[index]}", 30));
-            Console.Write(" ");
-            Console.Write(Pad(valueProvider(index), 16));
-            ResetBiosColors();
-            Console.WriteLine();
+            string row = $"  {labels[index],-38} [ {valueProvider(index),-10} ]";
+            WriteSelectableLine(row, selected);
         }
 
+        FillBiosBody(10);
+        DrawFirmwareFooter("[Up/Down] Choose Row    [Left/Right/Enter] Modify    [Esc] Return");
         Console.ResetColor();
     }
 
@@ -534,77 +521,157 @@ internal class BIOS
     private static void DrawDetailScreen(string title)
     {
         BeginBiosScreen();
-        DrawTitle(title);
-        WriteFramedLine("Esc returns from editable pages. Values are saved only from the main menu.");
-        DrawSeparator();
-        Console.ResetColor();
-        Console.BackgroundColor = ConsoleColor.Black;
-        Console.ForegroundColor = ConsoleColor.White;
-        Console.WriteLine();
+        DrawFirmwareHeader(GetTabForTitle(title));
+        WriteBiosLine($"  {title}");
+        WriteBiosLine(new string('-', UiWidth - 4));
+        WriteBiosLine("");
     }
 
     private static void WriteDetail(string label, string value)
     {
-        Console.ForegroundColor = ConsoleColor.Gray;
-        Console.Write($"{label,-22}: ");
+        ResetBiosColors();
+        Console.Write($"  {label,-25}: ");
         Console.ForegroundColor = ConsoleColor.White;
-        Console.WriteLine(value);
+        Console.WriteLine(Truncate(value, UiWidth - 31).PadRight(Math.Max(0, UiWidth - 31)));
     }
 
     private static void WriteStatus(string status, string message)
     {
-        Console.ForegroundColor = status == "OK" ? ConsoleColor.Green : ConsoleColor.Yellow;
-        Console.Write($"[{status}] ");
+        ResetBiosColors();
+        Console.ForegroundColor = status == "OK" ? ConsoleColor.White : ConsoleColor.Yellow;
+        Console.Write($"  [{status,-4}] ");
         Console.ForegroundColor = ConsoleColor.White;
-        Console.WriteLine(message);
+        Console.WriteLine(Truncate(message, UiWidth - 12).PadRight(Math.Max(0, UiWidth - 12)));
     }
 
     private static void WaitForKey()
     {
-        Console.ForegroundColor = ConsoleColor.Gray;
-        Console.WriteLine("\nPress any key to return...");
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.WriteLine();
+        DrawFirmwareFooter("Press any key to return to the firmware menu");
         Console.ResetColor();
         Console.ReadKey(intercept: true);
     }
 
     private static void BeginBiosScreen()
     {
-        Console.Clear();
         ResetBiosColors();
+        Console.Clear();
         Console.Title = "Surf BIOS Setup";
     }
 
     private static void ResetBiosColors()
     {
-        Console.BackgroundColor = ConsoleColor.DarkBlue;
+        Console.BackgroundColor = ConsoleColor.Blue;
         Console.ForegroundColor = ConsoleColor.White;
     }
 
-    private static void DrawTitle(string title)
+    private static void DrawFirmwareHeader(string activeTab)
     {
-        DrawTop();
-        WriteFramedLine(Center(title, UiWidth - 4));
-        DrawSeparator();
+        WriteBiosLine("Surf BIOS Setup Utility - Copyright (C) 2026 SurfOS Firmware, Inc.");
+        WriteBiosLine(new string('-', UiWidth));
+
+        string[] tabs = ["Main", "Advanced (Customization)", "Security & Privacy", "Boot", "Exit"];
+        foreach (string tab in tabs)
+        {
+            bool active = tab.Equals(activeTab, StringComparison.OrdinalIgnoreCase);
+            if (active)
+            {
+                Console.BackgroundColor = ConsoleColor.Gray;
+                Console.ForegroundColor = ConsoleColor.Black;
+            }
+            else
+            {
+                ResetBiosColors();
+            }
+
+            Console.Write($" {tab} ");
+        }
+
+        ResetBiosColors();
+        Console.WriteLine(new string(' ', Math.Max(0, UiWidth - Console.CursorLeft)));
+        WriteBiosLine(new string('-', UiWidth));
     }
 
-    private static void DrawTop()
+    private static string GetTabForTitle(string title)
     {
-        Console.WriteLine("+" + new string('-', UiWidth - 2) + "+");
+        return title switch
+        {
+            "BOOT OPTIONS" => "Boot",
+            "CONSOLE SETTINGS" => "Advanced (Customization)",
+            "THEME VERIFICATION" => "Security & Privacy",
+            "RESET SURFOS SETTINGS" => "Exit",
+            _ => "Main"
+        };
     }
 
-    private static void DrawSeparator()
+    private static void WriteSplitLine(string left, string right)
     {
-        Console.WriteLine("+" + new string('-', UiWidth - 2) + "+");
+        ResetBiosColors();
+        Console.Write(Pad(left, MainPaneWidth));
+        Console.ForegroundColor = ConsoleColor.Gray;
+        Console.Write("|");
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.WriteLine(Pad(right, HelpPaneWidth));
     }
 
-    private static void DrawBottom()
+    private static void WriteSelectableSplitLine(string left, string right, bool selected, bool warning)
     {
-        Console.WriteLine("+" + new string('-', UiWidth - 2) + "+");
+        if (selected)
+        {
+            Console.BackgroundColor = ConsoleColor.Gray;
+            Console.ForegroundColor = ConsoleColor.Black;
+        }
+        else
+        {
+            ResetBiosColors();
+            Console.ForegroundColor = warning ? ConsoleColor.Yellow : ConsoleColor.White;
+        }
+
+        Console.Write(Pad(left, MainPaneWidth));
+        ResetBiosColors();
+        Console.ForegroundColor = ConsoleColor.Gray;
+        Console.Write("|");
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.WriteLine(Pad(right, HelpPaneWidth));
     }
 
-    private static void WriteFramedLine(string text)
+    private static void WriteSelectableLine(string text, bool selected)
     {
-        Console.WriteLine("| " + Pad(Truncate(text, UiWidth - 4), UiWidth - 4) + " |");
+        if (selected)
+        {
+            Console.BackgroundColor = ConsoleColor.Gray;
+            Console.ForegroundColor = ConsoleColor.Black;
+        }
+        else
+        {
+            ResetBiosColors();
+        }
+
+        Console.WriteLine(Pad(text, UiWidth));
+        ResetBiosColors();
+    }
+
+    private static void WriteBiosLine(string text)
+    {
+        ResetBiosColors();
+        Console.WriteLine(Pad(text, UiWidth));
+    }
+
+    private static void FillBiosBody(int lines)
+    {
+        for (int index = 0; index < lines; index++)
+        {
+            WriteBiosLine("");
+        }
+    }
+
+    private static void DrawFirmwareFooter(string navigation)
+    {
+        ResetBiosColors();
+        WriteBiosLine(new string('-', UiWidth));
+        WriteBiosLine($"  Navigate: {navigation}");
+        WriteBiosLine("  Save: Select 'Exit Saving Changes'    Esc: Return / Exit Setup");
     }
 
     private static string Pad(string text, int width)
@@ -615,13 +682,6 @@ internal class BIOS
     private static string Truncate(string text, int width)
     {
         return text.Length <= width ? text : text[..Math.Max(0, width - 3)] + "...";
-    }
-
-    private static string Center(string text, int width)
-    {
-        text = Truncate(text, width);
-        int left = Math.Max(0, (width - text.Length) / 2);
-        return new string(' ', left) + text;
     }
 
     private static string OnOff(bool enabled)

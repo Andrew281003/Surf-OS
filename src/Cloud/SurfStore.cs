@@ -5,7 +5,6 @@ internal static class SurfStore
     private static readonly string[] Categories =
     [
         "Productivity",
-        "Games",
         "Themes",
         "Developer Tools",
         "Utilities"
@@ -192,7 +191,6 @@ internal static class SurfStore
             Console.WriteLine($"Category       : {package.Category}");
             Console.WriteLine($"Installed      : {(installed is null ? "no" : $"yes ({installed.Version})")}");
             Console.WriteLine($"Update         : {(updateAvailable ? "available" : "none")}");
-            Console.WriteLine($"Desktop        : {(package.DesktopEnabled ? package.DesktopTitle : "no")}");
             Console.WriteLine($"Minimum SurfOS : {package.MinimumSurfOSVersion}");
             Console.WriteLine($"Dependencies   : {FormatDependencies(package.Dependencies)}");
             Console.WriteLine($"SHA-256        : {(string.IsNullOrWhiteSpace(package.Sha256) ? "not provided" : package.Sha256)}");
@@ -322,9 +320,6 @@ internal static class SurfStore
             Name = installed.Name,
             Version = installed.Version,
             Category = installed.Category,
-            DesktopEnabled = installed.DesktopEnabled,
-            DesktopIcon = installed.DesktopIcon,
-            DesktopTitle = installed.DesktopTitle,
             Command = installed.Command,
             Description = "Installed package. Cloud manifest unavailable."
         };

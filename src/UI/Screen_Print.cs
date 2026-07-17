@@ -10,8 +10,10 @@ namespace SurfOS2
             Console.ForegroundColor = ConsoleColor.Green;
             RetroConsole.TypeLine("SURFOS INSTALLATION PROGRAM", 5);
             RetroConsole.TypeLine("---------------------------", 2);
-            RetroConsole.TypeLine("Welcome, operator. This program will configure your system.", 3);
-            RetroConsole.TypeLine("\n[RIGHT ARROW] Begin installation", 2);
+            RetroConsole.TypeLine("Welcome, operator. Choose Guided Setup for recommended defaults", 3);
+            RetroConsole.TypeLine("or Advanced Setup for complete control over the installation.", 3);
+            RetroConsole.TypeLine("The default SurfOS drive is a safe 15 GB fixed VHDX and can be customized.", 3);
+            RetroConsole.TypeLine("\n[RIGHT ARROW / ENTER] Begin installation", 2);
             RetroConsole.TypeLine("[Q] Abort", 2);
             Console.ResetColor();
         }

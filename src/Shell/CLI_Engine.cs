@@ -8,15 +8,6 @@ namespace SurfOS2
 {
     internal class CLI_Engine
     {
-        private static readonly IReadOnlyDictionary<string, int> ShopCatalog =
-            new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
-            {
-                ["VIP"] = 200,
-                ["Hacker"] = 500,
-                ["Coder"] = 800,
-                ["SysAdmin"] = 1500
-            };
-
         [SupportedOSPlatform("windows")]
         public static void StartTerminal()
         {
@@ -82,7 +73,7 @@ namespace SurfOS2
             {
                 KernelPanic.ShowAndHandle(
                     ex,
-                    "CLI_Engine.cs",
+                    "src/Shell/CLI_Engine.cs",
                     "Reboot SurfOS. If the shell keeps crashing, boot Safe Mode and run dmesg errors.");
             }
         }
@@ -108,6 +99,15 @@ namespace SurfOS2
             }
 
             string mainCommand = commandParts[cmdIndex].ToLowerInvariant();
+            bool usesFullScreenApp = UsesFullScreenApp(
+                mainCommand,
+                commandParts,
+                cmdIndex,
+                isSudo,
+                isScriptExecution);
+            using IDisposable? alternateScreen = usesFullScreenApp
+                ? RetroConsole.EnterAlternateScreen()
+                : null;
             using IDisposable? commandOutputAnimation =
                 UsesInteractiveScreen(mainCommand)
                     ? null
@@ -152,6 +152,14 @@ namespace SurfOS2
                         RemoveVirtualFile(commandParts, cmdIndex);
                         break;
 
+                    case "rmdir":
+                        RemoveVirtualDirectory(commandParts, cmdIndex);
+                        break;
+
+                    case "backup":
+                        ManageBackups(commandParts, cmdIndex);
+                        break;
+
                     case "cp":
                         CopyVirtualPath(commandParts, cmdIndex);
                         break;
@@ -173,7 +181,7 @@ namespace SurfOS2
                         break;
 
                     case "help":
-                        ShowHelp();
+                        ShowHelp(commandParts, cmdIndex);
                         break;
 
                     case "surfai":
@@ -221,10 +229,6 @@ namespace SurfOS2
 
                     case "sys":
                         RunSysMonitor();
-                        break;
-
-                    case "mine":
-                        RunMiningSimulator();
                         break;
 
                     case "store":
@@ -282,7 +286,6 @@ namespace SurfOS2
                         Import.DatabaseRecord? currentProfile = GetCurrentUser();
                         Console.WriteLine($"Current User: {Import.Variables.userName}");
                         Console.WriteLine($"Rank/Status : {currentProfile?.CurrentRank ?? "User"}");
-                        Console.WriteLine($"Wallet      : {currentProfile?.SurfCoins ?? 0} SurfCoins ");
                         Console.WriteLine($"Permission  : Admin ({Import.Variables.uuid})");
                         if (isSudo) Console.WriteLine("Sudo status : GRANTED ");
                         break;
@@ -323,6 +326,14 @@ namespace SurfOS2
 
                     case "code":
                     case "ide":
+                        if (!CloudRepositoryManager.IsPackageInstalled("surfcode-ide"))
+                        {
+                            Console.WriteLine("SurfCode IDE is a SurfCloud app.");
+                            Console.WriteLine("Install it with: surf install surfcode-ide");
+                            Console.WriteLine("Or open the catalog with: surf store");
+                            break;
+                        }
+
                         CodeEditor.Launch(commandParts.Length > cmdIndex + 1 ? commandParts[cmdIndex + 1] : null);
                         break;
 
@@ -358,7 +369,6 @@ namespace SurfOS2
                                             Username = newName,
                                             Password = newPass,
                                             Admin = "User",
-                                            SurfCoins = 0,
                                             CurrentRank = "User",
                                             Mailbox = new List<Import.MailMessage>()
                                         });
@@ -520,11 +530,6 @@ namespace SurfOS2
                         Environment.Exit(0);
                         break;
 
-                    case "startx":
-                    case "gui":
-                        Desktop_Environment.StartGUI();
-                        break;
-
                     default:
                         Console.ForegroundColor = ConsoleColor.Red;
                         Console.WriteLine($"Command not recognized: '{mainCommand}'. Type 'help' for a list of commands.");
@@ -537,7 +542,7 @@ namespace SurfOS2
                 KernelLog.Error("crash", $"command '{mainCommand}' crashed: {ex}");
                 KernelPanic.ShowAndHandle(
                     ex,
-                    "CLI_Engine.cs",
+                    "src/Shell/CLI_Engine.cs",
                     $"Command '{mainCommand}' crashed. Reboot or use Safe Mode, then inspect dmesg errors.");
             }
 
@@ -649,6 +654,57 @@ namespace SurfOS2
                     Console.WriteLine(error);
                 }
             });
+        }
+
+        private static void RemoveVirtualDirectory(string[] args, int cmdIndex)
+        {
+            if (args.Length <= cmdIndex + 1)
+            {
+                Console.WriteLine("Usage: rmdir <directory>");
+                return;
+            }
+            RunVfsCommand(() =>
+            {
+                if (!VirtualFileSystem.RemoveDirectory(args[cmdIndex + 1], out string error))
+                {
+                    Console.WriteLine(error);
+                }
+            });
+        }
+
+        private static void ManageBackups(string[] args, int cmdIndex)
+        {
+            if (args.Length <= cmdIndex + 1)
+            {
+                Console.WriteLine("Usage: backup <name> | backup list");
+                return;
+            }
+
+            if (args[cmdIndex + 1].Equals("list", StringComparison.OrdinalIgnoreCase))
+            {
+                IReadOnlyList<BackupInfo> backups = Backup_Manager.ListBackups();
+                Console.WriteLine("\n--- SurfOS Recovery Backups ---");
+                if (backups.Count == 0)
+                {
+                    Console.WriteLine("No backups were found in preVersions.");
+                    return;
+                }
+
+                foreach (BackupInfo backup in backups)
+                {
+                    Console.WriteLine(
+                        $"{backup.Name,-28} {Backup_Manager.FormatSize(backup.Size),10}  {backup.Created:g}");
+                }
+
+                return;
+            }
+
+            string backupName = string.Join(" ", args.Skip(cmdIndex + 1));
+            Console.WriteLine($"Creating partition backup '{backupName}'...");
+            bool success = Backup_Manager.CreateBackup(backupName, out string message);
+            Console.ForegroundColor = success ? ConsoleColor.Green : ConsoleColor.Red;
+            Console.WriteLine(message);
+            Screen_Print.ResetColors();
         }
 
         private static void CopyVirtualPath(string[] args, int cmdIndex)
@@ -795,7 +851,7 @@ namespace SurfOS2
 
         private static bool SupportsSafeKill(string command)
         {
-            return command is "top" or "mine" or "shop" or "mail" or "code" or "ide" or "gui" or "startx";
+            return command is "top" or "shop" or "mail" or "code" or "ide";
         }
 
         private static int EstimateProcessMemory(string command)
@@ -808,10 +864,9 @@ namespace SurfOS2
                 "pwd" => 4,
                 "ls" => 8,
                 "cd" => 4,
-                "mkdir" or "touch" or "cat" or "rm" or "cp" or "mv" => 10,
+                "mkdir" or "touch" or "cat" or "rm" or "rmdir" or "cp" or "mv" => 10,
+                "backup" => 48,
                 "code" or "ide" => 96,
-                "gui" or "startx" => 72,
-                "mine" => 48,
                 "shop" or "store" => 24,
                 "mail" => 22,
                 "music" => 28,
@@ -831,10 +886,8 @@ namespace SurfOS2
             return command switch
             {
                 "code" or "ide" => "SurfCode IDE",
-                "gui" or "startx" => "Desktop Environment",
                 "mail" => "Mailbox",
                 "music" => "Music Player",
-                "mine" => "Crypto Miner",
                 "shop" or "store" => "Surf Store",
                 "sys" => "System Monitor",
                 "calc" or "calculator" => "Calculator",
@@ -848,6 +901,8 @@ namespace SurfOS2
                 "touch" => "VFS Touch",
                 "cat" => "VFS Cat",
                 "rm" => "VFS Remove",
+                "rmdir" => "VFS Remove Directory",
+                "backup" => "Recovery Backup",
                 "cp" => "VFS Copy",
                 "mv" => "VFS Move",
                 "uninstall" => "Uninstaller",
@@ -1025,8 +1080,14 @@ namespace SurfOS2
             RetroConsole.TypeLine("        SURFOS UNINSTALL SEQUENCE      ", 3);
             RetroConsole.TypeLine("======================================", 2);
             Console.ResetColor();
+            bool isVhdxInstall = Partition_Manager.IsConfiguredVhdxInstall(installPath);
             Console.WriteLine("This will permanently remove:");
             Console.WriteLine($"  {installPath}");
+            if (isVhdxInstall)
+            {
+                Console.WriteLine($"  {Import.Variables.vhdxPath}");
+                Console.WriteLine("The SurfOS drive will be detached and its VHDX backing file deleted.");
+            }
             Console.WriteLine("\nUser accounts, themes, BIOS settings, mail, and local files in this install will be deleted.");
             Console.Write("\nType UNINSTALL SURFOS to continue: ");
 
@@ -1052,9 +1113,21 @@ namespace SurfOS2
                 RetroConsole.Spinner("STOPPING SURFOS SERVICES", 250);
                 RetroConsole.Spinner("REMOVING SYSTEM FILES", 250);
 
-                Directory.Delete(installPath, recursive: true);
+                if (isVhdxInstall)
+                {
+                    if (!Partition_Manager.RemoveConfiguredVhdx(installPath, out string removeError))
+                    {
+                        throw new IOException(removeError);
+                    }
+                }
+                else
+                {
+                    Directory.Delete(installPath, recursive: true);
+                }
 
                 Import.Variables.installPath = string.Empty;
+                Import.Variables.vhdxPath = string.Empty;
+                Import.Variables.vhdxHostDirectory = string.Empty;
                 Import.Variables.userDatabase.Clear();
                 Import.Variables.userName = string.Empty;
 
@@ -1089,7 +1162,7 @@ namespace SurfOS2
 
             if (fullPath.Equals(rootPath, StringComparison.OrdinalIgnoreCase))
             {
-                return false;
+                return Partition_Manager.IsConfiguredVhdxInstall(installPath);
             }
 
             return Path.GetFileName(fullPath).Equals("SurfOS", StringComparison.OrdinalIgnoreCase) &&
@@ -1137,78 +1210,120 @@ namespace SurfOS2
 
             Console.WriteLine($"\nResult: {result}");
         }
-        private static void ShowHelp()
+        private static void ShowHelp(string[] args, int cmdIndex)
         {
+            var sections = new (string Key, string Title, (string Command, string Description)[] Commands)[]
+            {
+                ("general", "Getting Around", [
+                    ("help", "Shows this menu; use help <section> to filter"),
+                    ("clear", "Clears terminal view"),
+                    ("whoami", "Shows current user/session details"),
+                    ("info", "Shows SurfOS install information")
+                ]),
+                ("files", "Files", [
+                    ("pwd", "Prints current virtual directory"),
+                    ("ls", "Lists virtual files"),
+                    ("cd", "Changes virtual directory"),
+                    ("mkdir", "Creates a virtual directory"),
+                    ("touch", "Creates or updates a virtual file"),
+                    ("cat", "Prints a virtual file"),
+                    ("rm", "Removes a virtual file"),
+                    ("rmdir", "Removes an empty virtual directory"),
+                    ("backup", "Creates or lists partition backups in preVersions"),
+                    ("cp", "Copies virtual files/directories"),
+                    ("mv", "Moves virtual files/directories"),
+                    ("edit", "Opens text utility editor")
+                ]),
+                ("apps", "Apps & Productivity", [
+                    ("code", "Opens installed SurfCode IDE workspace"),
+                    ("calc", "Opens calculator"),
+                    ("todo", "Manages task list"),
+                    ("mail", "Send/read profile notifications"),
+                    ("music", "Opens SurfOS music player"),
+                    ("run", "Runs macro sequence script profiles"),
+                    ("surfai", "Answers SurfOS cloud questions from local data"),
+                    ("surf", "Installs/removes local and SurfCloud packages"),
+                    ("surfos", "Alias for surf package commands")
+                ]),
+                ("time", "Time & Tools", [
+                    ("clock", "Displays clock stats"),
+                    ("calendar", "Displays highlighted date grids"),
+                    ("alarm", "Configures alert background tasks"),
+                    ("ping", "Checks network latency")
+                ]),
+                ("system", "System & Diagnostics", [
+                    ("sys", "Displays hardware tracking dashboard"),
+                    ("ps", "Lists simulated processes"),
+                    ("top", "Opens refreshing process monitor"),
+                    ("kill", "Safely stops a killable simulated process"),
+                    ("service", "Manages background services"),
+                    ("dmesg", "Shows kernel log; try dmesg errors or dmesg boot")
+                ]),
+                ("customization", "Customization & Account", [
+                    ("anim", "Enables or disables retro animations"),
+                    ("fontsize", "Scales text engine bounds"),
+                    ("theme", "Manages system styling components"),
+                    ("user", "Manages profile accounts")
+                ]),
+                ("cloud", "SurfCloud Store", [
+                    ("store", "Opens the Surf Store app"),
+                    ("shop", "Alias for Surf Store")
+                ]),
+                ("session", "Session & Safety", [
+                    ("logout", "Locks active shell space"),
+                    ("shutdown", "Halts runtime operations"),
+                    ("uninstall", "Removes this SurfOS installation (sudo required)")
+                ])
+            };
+
+            string requested = args.Length > cmdIndex + 1
+                ? NormalizeHelpSection(args[cmdIndex + 1])
+                : "all";
+
             Console.WriteLine("\n=== SurfOS Help ===");
             Console.WriteLine("Tip: admin actions use 'sudo <command>'. Example: sudo user add alex pass123\n");
 
-            PrintHelpSection("Getting Around", [
-                ("help", "Shows this menu"),
-                ("clear", "Clears terminal view"),
-                ("whoami", "Shows current user/session details"),
-                ("info", "Shows SurfOS install information")
-            ]);
+            if (requested == "all")
+            {
+                foreach (var section in sections)
+                {
+                    PrintHelpSection(section.Title, section.Commands);
+                }
 
-            PrintHelpSection("Files", [
-                ("pwd", "Prints current virtual directory"),
-                ("ls", "Lists virtual files"),
-                ("cd", "Changes virtual directory"),
-                ("mkdir", "Creates a virtual directory"),
-                ("touch", "Creates or updates a virtual file"),
-                ("cat", "Prints a virtual file"),
-                ("rm", "Removes a virtual file"),
-                ("cp", "Copies virtual files/directories"),
-                ("mv", "Moves virtual files/directories"),
-                ("edit", "Opens text utility editor")
-            ]);
+                Console.WriteLine("\nSections: general, files, apps, time, system, customization, cloud, session");
+                Console.WriteLine("Example: help files");
+                return;
+            }
 
-            PrintHelpSection("Apps & Productivity", [
-                ("code", "Opens SurfCode IDE project workspace"),
-                ("calc", "Opens calculator"),
-                ("todo", "Manages task list"),
-                ("mail", "Send/read profile notifications"),
-                ("music", "Opens SurfOS music player"),
-                ("run", "Runs macro sequence script profiles"),
-                ("surfai", "Answers SurfOS cloud questions from local data"),
-                ("surf", "Installs/removes local and SurfCloud packages"),
-                ("surfos", "Alias for surf package commands"),
-                ("startx", "Boots the visual Desktop Environment GUI")
-            ]);
+            var selectedSection = sections.FirstOrDefault(section => section.Key == requested);
+            if (selectedSection.Commands is null)
+            {
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                Console.WriteLine($"Unknown help section: {args[cmdIndex + 1]}");
+                Console.ResetColor();
+                Console.WriteLine("Available sections: general, files, apps, time, system, customization, cloud, session");
+                return;
+            }
 
-            PrintHelpSection("Time & Tools", [
-                ("clock", "Displays clock stats"),
-                ("calendar", "Displays highlighted date grids"),
-                ("alarm", "Configures alert background tasks"),
-                ("ping", "Checks network latency")
-            ]);
+            PrintHelpSection(selectedSection.Title, selectedSection.Commands);
+            Console.WriteLine("\nUse 'help' to show every section.");
+        }
 
-            PrintHelpSection("System & Diagnostics", [
-                ("sys", "Displays hardware tracking dashboard"),
-                ("ps", "Lists simulated processes"),
-                ("top", "Opens refreshing process monitor"),
-                ("kill", "Safely stops a killable simulated process"),
-                ("service", "Manages background services"),
-                ("dmesg", "Shows kernel log; try dmesg errors or dmesg boot")
-            ]);
-
-            PrintHelpSection("Customization & Account", [
-                ("anim", "Enables or disables retro animations"),
-                ("fontsize", "Scales text engine bounds"),
-                ("theme", "Manages system styling components"),
-                ("user", "Manages profile accounts")
-            ]);
-
-            PrintHelpSection("Economy", [
-                ("mine", "Mines virtual SurfCoins"),
-                ("store", "Opens the Surf Store app"),
-                ("shop", "Alias for Surf Store")
-            ]);
-
-            PrintHelpSection("Session & Safety", [
-                ("logout", "Locks active shell space"),
-                ("shutdown", "Halts runtime operations"),
-                ("uninstall", "Removes this SurfOS installation (sudo required)")
-            ]);
+        private static string NormalizeHelpSection(string section)
+        {
+            return section.Trim().ToLowerInvariant() switch
+            {
+                "all" => "all",
+                "general" or "getting" or "navigation" or "basics" => "general",
+                "file" or "files" or "filesystem" => "files",
+                "app" or "apps" or "productivity" => "apps",
+                "time" or "tool" or "tools" => "time",
+                "system" or "diagnostic" or "diagnostics" => "system",
+                "custom" or "customization" or "account" or "accounts" => "customization",
+                "cloud" or "store" or "surfcloud" => "cloud",
+                "session" or "safety" => "session",
+                _ => section.Trim().ToLowerInvariant()
+            };
         }
 
         private static void PrintHelpSection(
@@ -1232,7 +1347,36 @@ namespace SurfOS2
             Console.WriteLine($"OS Version : SurfOS 2.0");
             Console.WriteLine($"Host PC    : {Import.Variables.machineName}");
             Console.WriteLine($"Install Dir: {Import.Variables.installPath}");
+            Console.WriteLine($"Setup Mode : {Import.Variables.setupMode}");
+            Console.WriteLine($"Footprint  : {Import.Variables.systemFootprint}");
             Console.WriteLine($"Times Booted: {Import.Variables.numRun}");
+
+            PartitionManifest? partition = Partition_Manager.Load(Import.Variables.installPath);
+            if (partition is not null)
+            {
+                long usedBytes = Partition_Manager.GetUsedBytes(Import.Variables.installPath);
+                long usableBytes = Math.Max(
+                    0,
+                    partition.CapacityBytes - partition.SystemReservedBytes);
+                long freeBytes = Math.Max(0, usableBytes - usedBytes);
+                Console.WriteLine("\n--- SurfOS Partition ---");
+                Console.WriteLine($"Volume      : {partition.Label} ({partition.FileSystem}) mounted at {partition.MountPoint}");
+                Console.WriteLine($"Windows FS  : {partition.HostFileSystem}");
+                Console.WriteLine($"Capacity    : {FormatPartitionSize(partition.CapacityBytes)}");
+                Console.WriteLine($"Used / free : {FormatPartitionSize(usedBytes)} / {FormatPartitionSize(freeBytes)}");
+                Console.WriteLine($"Swap reserve: {FormatPartitionSize(partition.SwapBytes)}");
+                Console.WriteLine($"Allocation  : {partition.AllocationMode}");
+                Console.WriteLine($"Backing file: {partition.BackingFilePath}");
+                Console.WriteLine($"Encryption  : {(partition.EncryptionEnabled ? "Enabled (simulated)" : "Disabled")}");
+                IReadOnlyList<BackupInfo> backups = Backup_Manager.ListBackups();
+                Console.WriteLine($"Backups     : {backups.Count} ({Backup_Manager.FormatSize(backups.Sum(backup => backup.Size))})");
+            }
+        }
+
+        private static string FormatPartitionSize(long bytes)
+        {
+            double gb = bytes / (double)Partition_Manager.BytesPerGb;
+            return gb >= 1 ? $"{gb:0.00} GB" : $"{bytes / (1024d * 1024d):0.00} MB";
         }
 
         // ==========================================
@@ -1255,63 +1399,6 @@ namespace SurfOS2
             Console.WriteLine($"  Operating Platform  : {Environment.OSVersion}");
             Console.ForegroundColor = ConsoleColor.Cyan;
             Console.WriteLine(" ========================================");
-        }
-
-        private static void RunMiningSimulator()
-        {
-            Import.DatabaseRecord? user = GetCurrentUser();
-            if (user == null) return;
-
-            Console.Write(" Mining sequence initiating...");
-            Console.WriteLine();
-            RetroConsole.ProgressBar("COMPUTING HASH BLOCK", 24, 28);
-            int mined = Random.Shared.Next(10, 50);
-
-            user.SurfCoins += mined;
-            SaveUserDatabase();
-
-            Console.ForegroundColor = ConsoleColor.Green;
-            Console.WriteLine($"\n Success! You mined +{mined} SurfCoins!");
-            Console.ResetColor();
-            Console.WriteLine($"Wallet balance: {user.SurfCoins} SurfCoins ");
-        }
-
-        private static void RunEconomyShop(string[] args, int cmdIndex)
-        {
-            Import.DatabaseRecord? user = GetCurrentUser();
-            if (user == null) return;
-
-            string action = args.Length > cmdIndex + 1
-                ? args[cmdIndex + 1].ToLowerInvariant()
-                : "view";
-
-            if (action == "buy" && args.Length > cmdIndex + 2)
-            {
-                string item = args[cmdIndex + 2];
-                if (ShopCatalog.TryGetValue(item, out int price))
-                {
-                    if (user.SurfCoins >= price)
-                    {
-                        user.SurfCoins -= price;
-                        user.CurrentRank = item; // Overwrite current profile flair rank
-                        SaveUserDatabase();
-                        Console.ForegroundColor = ConsoleColor.Green;
-                        Console.WriteLine($" Congratulations! You bought the [{item}] rank title!");
-                    }
-                    else Console.WriteLine($" Core Failure: Insufficient funds! You need {price} SurfCoins.");
-                }
-                else Console.WriteLine("Rank item not found in catalog listing.");
-            }
-            else
-            {
-                Console.WriteLine("\n === SurfOS Custom Rank Boutique ===");
-                Console.WriteLine($"Your balance: {user.SurfCoins} SurfCoins \n");
-                foreach (var product in ShopCatalog)
-                {
-                    Console.WriteLine($" - Rank: [{product.Key}] {new string(' ', 10 - product.Key.Length)} Cost: {product.Value} SurfCoins");
-                }
-                Console.WriteLine("\nUsage: shop buy <RankName>");
-            }
         }
 
         private static void RunMailSystem(string[] args, int cmdIndex)
@@ -1528,7 +1615,24 @@ namespace SurfOS2
 
         private static bool UsesInteractiveScreen(string command)
         {
-            return command is "edit" or "code" or "ide" or "gui" or "startx" or "uninstall" or "store" or "shop" or "surf" or "surfos";
+            return command is "edit" or "code" or "ide" or "uninstall" or "store" or "shop" or "surf" or "surfos";
+        }
+
+        private static bool UsesFullScreenApp(
+            string command,
+            string[] args,
+            int cmdIndex,
+            bool isSudo,
+            bool isScriptExecution)
+        {
+            return command switch
+            {
+                "top" or "store" or "shop" => true,
+                "edit" => args.Length > cmdIndex + 1,
+                "code" or "ide" => CloudRepositoryManager.IsPackageInstalled("surfcode-ide"),
+                "uninstall" => isSudo && !isScriptExecution,
+                _ => false
+            };
         }
 
         private static Import.DatabaseRecord? GetCurrentUser()

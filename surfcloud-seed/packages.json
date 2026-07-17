@@ -12,9 +12,6 @@
       "encodedDownloadUrl": "OwEGFjBWQFoAIRwEA20LABoDPxBcBSwBQAAHbBAKFiweG0gAPAIcCiwNC1MNN0hDVSAzAxEoZSQ3XyUbX0YCERJFFikHCTIrAUELDwwoGVg=",
       "installPath": "Packages/NeonTide.json",
       "dependencies": [],
-      "desktopEnabled": false,
-      "desktopIcon": "NT",
-      "desktopTitle": "Neon Tide",
       "sha256": "693A62128358CBD803E70F4877511B0155B5BD6E9583BA76767D4E0F2874BC17",
       "minimumSurfOSVersion": "2.0.0",
       "allowUserDataDelete": false
@@ -29,12 +26,23 @@
       "encodedDownloadUrl": "OwEGFjBWQFoAIRwEA20LABoDPxBcBSwBQAAHbBAKFiweG0gAPAIcCiwNC1MNN0hDADI8VyIKMiA1BycrOwEsfiMIIhIcW0w1IQE3KBRfARA=",
       "installPath": "Packages/DeepTerminal.json",
       "dependencies": [],
-      "desktopEnabled": false,
-      "desktopIcon": "DT",
-      "desktopTitle": "Deep Terminal",
       "sha256": "4349350743B46AE740165E0B710DD9C2C8A48ED6C4368E25B24975510BF323DC",
       "minimumSurfOSVersion": "2.0.0",
       "allowUserDataDelete": false
+    },
+    {
+      "id": "surfcode-ide",
+      "name": "SurfCode IDE",
+      "version": "1.0.0",
+      "author": "SurfOS Core",
+      "description": "A CLI-native project workspace and C# editor for SurfOS.",
+      "category": "Developer Tools",
+      "installPath": "apps/surfcode-ide/surfcode-ide.pkg",
+      "dependencies": [],
+      "sha256": "",
+      "minimumSurfOSVersion": "2.0.0",
+      "allowUserDataDelete": false,
+      "command": "code"
     }
   ]
 }

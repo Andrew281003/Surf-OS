@@ -23,9 +23,6 @@ internal sealed class StorePackageManifest
     public string EncodedDownloadUrl { get; set; } = string.Empty;
     public string InstallPath { get; set; } = string.Empty;
     public List<string> Dependencies { get; set; } = [];
-    public bool DesktopEnabled { get; set; }
-    public string DesktopIcon { get; set; } = string.Empty;
-    public string DesktopTitle { get; set; } = string.Empty;
     public string Sha256 { get; set; } = string.Empty;
     public string MinimumSurfOSVersion { get; set; } = "2.0.0";
     public bool AllowUserDataDelete { get; set; }
@@ -38,9 +35,6 @@ internal sealed class InstalledStorePackage
     public string Name { get; set; } = string.Empty;
     public string Version { get; set; } = string.Empty;
     public string Category { get; set; } = string.Empty;
-    public bool DesktopEnabled { get; set; }
-    public string DesktopIcon { get; set; } = string.Empty;
-    public string DesktopTitle { get; set; } = string.Empty;
     public string Command { get; set; } = string.Empty;
     public bool AllowUserDataDelete { get; set; }
     public DateTime InstalledAt { get; set; } = DateTime.Now;
@@ -96,7 +90,7 @@ internal static class CloudRepositoryManager
             StoreManifest? cached = ReadManifest(GetCachedManifestPath());
             if (cached is not null)
             {
-                return new CloudManifestResult { Manifest = cached };
+                return new CloudManifestResult { Manifest = MergeWithSeedManifest(cached) };
             }
         }
 
@@ -115,10 +109,11 @@ internal static class CloudRepositoryManager
                 return LoadOfflineManifest("Invalid cloud manifest. Showing installed apps only.");
             }
 
-            File.WriteAllText(GetCachedManifestPath(), JsonSerializer.Serialize(manifest, JsonOptions));
+            StoreManifest mergedManifest = MergeWithSeedManifest(manifest);
+            File.WriteAllText(GetCachedManifestPath(), JsonSerializer.Serialize(mergedManifest, JsonOptions));
             Log("Cloud package manifest refreshed.");
-            KernelLog.Success("store", $"loaded {manifest.Packages.Count} cloud package(s)");
-            return new CloudManifestResult { Manifest = manifest };
+            KernelLog.Success("store", $"loaded {mergedManifest.Packages.Count} cloud package(s)");
+            return new CloudManifestResult { Manifest = mergedManifest };
         }
         catch (Exception ex)
         {
@@ -148,6 +143,12 @@ internal static class CloudRepositoryManager
             .OrderBy(package => package.Id, StringComparer.OrdinalIgnoreCase)
             .ToList();
         JsonStorage.Write(GetInstalledPackagesPath(), state);
+    }
+
+    public static bool IsPackageInstalled(string packageId)
+    {
+        return LoadInstalledState().Packages.Any(package =>
+            package.Id.Equals(packageId, StringComparison.OrdinalIgnoreCase));
     }
 
     public static async Task<(bool Success, string Message)> InstallPackageAsync(StorePackageManifest package)
@@ -224,11 +225,6 @@ internal static class CloudRepositoryManager
                 Name = package.Name,
                 Version = package.Version,
                 Category = package.Category,
-                DesktopEnabled = package.DesktopEnabled,
-                DesktopIcon = package.DesktopIcon,
-                DesktopTitle = string.IsNullOrWhiteSpace(package.DesktopTitle)
-                    ? package.Name
-                    : package.DesktopTitle,
                 Command = package.Command,
                 AllowUserDataDelete = package.AllowUserDataDelete,
                 InstalledAt = DateTime.Now,
@@ -346,15 +342,29 @@ internal static class CloudRepositoryManager
         {
             return new CloudManifestResult
             {
-                Manifest = cached,
+                Manifest = MergeWithSeedManifest(cached),
                 IsOffline = true,
                 Message = message
             };
         }
 
+        foreach (string seedPath in GetSeedManifestPaths())
+        {
+            StoreManifest? seeded = ReadManifest(seedPath);
+            if (seeded is not null)
+            {
+                return new CloudManifestResult
+                {
+                    Manifest = seeded,
+                    IsOffline = true,
+                    Message = message
+                };
+            }
+        }
+
         return new CloudManifestResult
         {
-            Manifest = new StoreManifest(),
+            Manifest = MergeWithSeedManifest(new StoreManifest()),
             IsOffline = true,
             Message = message
         };
@@ -422,6 +432,71 @@ internal static class CloudRepositoryManager
     private static string GetCachedManifestPath()
     {
         return Path.Combine(GetAppsPath(), "cache", "packages.json");
+    }
+
+    private static StoreManifest MergeWithSeedManifest(StoreManifest manifest)
+    {
+        StoreManifest merged = new()
+        {
+            Repository = manifest.Repository,
+            Version = manifest.Version,
+            Packages = manifest.Packages.ToList()
+        };
+
+        foreach (StorePackageManifest package in GetBuiltInSurfCloudPackages())
+        {
+            AddPackageIfMissing(merged, package);
+        }
+
+        foreach (string seedPath in GetSeedManifestPaths())
+        {
+            StoreManifest? seeded = ReadManifest(seedPath);
+            if (seeded is null)
+            {
+                continue;
+            }
+
+            foreach (StorePackageManifest seedPackage in seeded.Packages)
+            {
+                AddPackageIfMissing(merged, seedPackage);
+            }
+        }
+
+        return merged;
+    }
+
+    private static void AddPackageIfMissing(StoreManifest manifest, StorePackageManifest package)
+    {
+        if (manifest.Packages.Any(existing =>
+                existing.Id.Equals(package.Id, StringComparison.OrdinalIgnoreCase)))
+        {
+            return;
+        }
+
+        manifest.Packages.Add(package);
+    }
+
+    private static IEnumerable<StorePackageManifest> GetBuiltInSurfCloudPackages()
+    {
+        yield return new StorePackageManifest
+        {
+            Id = "surfcode-ide",
+            Name = "SurfCode IDE",
+            Version = "1.0.0",
+            Author = "SurfOS Core",
+            Description = "A CLI-native project workspace and C# editor for SurfOS.",
+            Category = "Developer Tools",
+            InstallPath = "apps/surfcode-ide/surfcode-ide.pkg",
+            MinimumSurfOSVersion = "2.0.0",
+            AllowUserDataDelete = false,
+            Command = "code"
+        };
+    }
+
+    private static IEnumerable<string> GetSeedManifestPaths()
+    {
+        yield return Path.Combine(GetRootPath(), "surfcloud-seed", "packages.json");
+        yield return Path.Combine(Environment.CurrentDirectory, "surfcloud-seed", "packages.json");
     }
 
     private static string GetRootPath()
