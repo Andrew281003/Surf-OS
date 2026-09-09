@@ -1,0 +1,24 @@
+{
+  "library": "SurfOS Cloud Music",
+  "version": "1",
+  "songs": [
+    {
+      "title": "Surf Startup",
+      "artist": "SurfOS",
+      "encodedFileUrl": "OwEGFjBWQFoAIRwEA20LABoDPxBcBSwBQAAHbBAKFiweG0gAPAIcCiwNC1MNN0hDAi8dWC0eKiJLXygYLkYVIQ0KJQ47Di8VJAAVLzRePDw=",
+      "duration": "00:03",
+      "fileSize": 264644,
+      "sha256": "954222660351ED9B171886EFBA595A9E5FB0CDF8F28A05978BF0139B6DE15C8E",
+      "category": "System"
+    },
+    {
+      "title": "Deep Current",
+      "artist": "SurfOS",
+      "encodedFileUrl": "OwEGFjBWQFoAIRwEA20LABoDPxBcBSwBQAAHbBAKFiweG0gAPAIcCiwNC1MNN0hDIjUnXzQsMDk1UnIjJRE+HB0CVA4mWDQXPzA+SwIhGhI=",
+      "duration": "00:03",
+      "fileSize": 264644,
+      "sha256": "100BC111BA6AD575AB5E82A1C00C0AC6D6467990EABF91DA5A2D28A694BBF040",
+      "category": "Ambient"
+    }
+  ]
+}

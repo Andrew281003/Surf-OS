@@ -1,0 +1,12 @@
+{
+  "name": "neon-tide",
+  "displayName": "Neon Tide Theme",
+  "version": "1.0.0",
+  "description": "A cyan-on-black SurfOS theme with a clean terminal feel.",
+  "author": "SurfOS Community",
+  "command": "theme load NeonTide",
+  "installKind": "theme",
+  "encodedPayloadUrl": "OwEGFjBWQFoAIRwEA20LABoDPxBcBSwBQAAHbBAKFiweG0gAPAIcCiwNC1MNN0hDVSAzAxEoZSQ3XyUbX0YCERJFFikHCTIrAUELDwwoGVg=",
+  "targetFile": "NeonTide.json",
+  "tags": ["theme", "cyan", "terminal"]
+}
