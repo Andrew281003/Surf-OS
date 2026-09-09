@@ -18,24 +18,6 @@
     <Compile Include="..\SurfOS.Domain\**\*.cs" />
     <Compile Include="..\SurfOS.Features\**\*.cs" />
     <Compile Include="..\SurfOS.Infrastructure\**\*.cs" />
-    <Compile Update="..\SurfOS.Features\Installer\Menus\BIOS.cs">
-      <Link>Installer\Menus\BIOS.cs</Link>
-    </Compile>
-    <Compile Update="..\SurfOS.Features\Installer\Menus\Boot_Manager.cs">
-      <Link>Installer\Menus\Boot_Manager.cs</Link>
-    </Compile>
-    <Compile Update="..\SurfOS.Domain\Filesystem\VirtualFileSystem.cs">
-      <Link>Music\Filesystem\VirtualFileSystem.cs</Link>
-    </Compile>
-    <Compile Update="..\SurfOS.Domain\Filesystem\VirtualFileSystem.cs">
-      <Link>Packages\Filesystem\VirtualFileSystem.cs</Link>
-    </Compile>
-    <Compile Update="..\SurfOS.Domain\Filesystem\VirtualFileSystem.cs">
-      <Link>Rendering\Filesystem\VirtualFileSystem.cs</Link>
-    </Compile>
-    <Compile Update="..\SurfOS.Domain\Filesystem\VirtualFileSystem.cs">
-      <Link>SurfAI\Filesystem\VirtualFileSystem.cs</Link>
-    </Compile>
   </ItemGroup>
 
   <ItemGroup>

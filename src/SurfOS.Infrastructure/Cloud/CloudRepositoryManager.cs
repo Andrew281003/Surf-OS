@@ -630,8 +630,8 @@ internal static class CloudRepositoryManager
 
     private static IEnumerable<string> GetSeedManifestPaths()
     {
-        yield return Path.Combine(GetRootPath(), "surfcloud-seed", "packages.json");
-        yield return Path.Combine(Environment.CurrentDirectory, "surfcloud-seed", "packages.json");
+        yield return Path.Combine(GetRootPath(), "assets", "surfcloud", "packages.json");
+        yield return Path.Combine(Environment.CurrentDirectory, "assets", "surfcloud", "packages.json");
     }
 
     private static string GetRootPath()

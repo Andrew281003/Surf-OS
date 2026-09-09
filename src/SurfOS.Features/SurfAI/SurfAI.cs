@@ -322,8 +322,8 @@ internal static class SurfAI
     {
         string root = GetRootPath();
         yield return (Path.Combine(root, "apps", "cache", "packages.json"), "cached Surf Store manifest");
-        yield return (Path.Combine(root, "surfcloud-seed", "packages.json"), "bundled SurfCloud seed packages");
-        yield return (Path.Combine(Environment.CurrentDirectory, "surfcloud-seed", "packages.json"), "workspace SurfCloud seed packages");
+        yield return (Path.Combine(root, "assets", "surfcloud", "packages.json"), "bundled SurfCloud seed packages");
+        yield return (Path.Combine(Environment.CurrentDirectory, "assets", "surfcloud", "packages.json"), "workspace SurfCloud seed packages");
     }
 
     private static StoreManifest? ReadManifest(string path)

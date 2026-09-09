@@ -530,8 +530,8 @@ internal static class MusicPlayer
     {
         string[] candidates =
         [
-            Path.Combine(GetRootPath(), "surfcloud-seed", "music.json"),
-            Path.Combine(Environment.CurrentDirectory, "surfcloud-seed", "music.json")
+            Path.Combine(GetRootPath(), "assets", "surfcloud", "music.json"),
+            Path.Combine(Environment.CurrentDirectory, "assets", "surfcloud", "music.json")
         ];
         foreach (string path in candidates.Distinct(StringComparer.OrdinalIgnoreCase))
         {

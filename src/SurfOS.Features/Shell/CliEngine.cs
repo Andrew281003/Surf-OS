@@ -159,7 +159,7 @@ namespace SurfOS2
             {
                 KernelPanic.ShowAndHandle(
                     ex,
-                    "src/Shell/CLI_Engine.cs",
+                    "src/SurfOS.Features/Shell/CliEngine.cs",
                     "Reboot SurfOS. If the shell keeps crashing, boot Safe Mode and run dmesg errors.");
             }
         }

@@ -1,6 +1,6 @@
 # SurfCloud package format
 
-SurfCloud packages are described by JSON manifests in `surfcloud-seed`. A package includes an identifier, display metadata, version and compatibility information, payload metadata, and an encoded download URL.
+SurfCloud packages are described by JSON manifests in `assets/surfcloud`. A package includes an identifier, display metadata, version and compatibility information, payload metadata, and an encoded download URL.
 
 Bundled manifests must not contain raw public storage links. Use the corresponding encoded URL field and provide a SHA-256 value when the package manager should verify the downloaded payload.
 
