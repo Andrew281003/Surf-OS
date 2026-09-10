@@ -1,25 +1,13 @@
-<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Cosmos.Sdk/3.0.82">
   <PropertyGroup>
-    <TargetFramework>net6.0</TargetFramework>
-    <CheckEolTargetFramework>false</CheckEolTargetFramework>
-    <Platform>cosmos</Platform>
-    <BaseOutputPath>bin\cosmos\</BaseOutputPath>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
     <AssemblyName>SurfOS</AssemblyName>
     <RootNamespace>SurfOS</RootNamespace>
-    <ImplicitUsings>disable</ImplicitUsings>
-    <Nullable>disable</Nullable>
-    <SupportsX86Intrinsics>false</SupportsX86Intrinsics>
-    <SelfContained>true</SelfContained>
-    <DebugEnabled>false</DebugEnabled>
-    <EnableGDB>false</EnableGDB>
-    <StartCosmosGDB>false</StartCosmosGDB>
-    <Deployment>ISO</Deployment>
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- These versions match the installed Cosmos User Kit. Upgrade them together. -->
-    <PackageReference Include="Cosmos.Build" Version="0.1.0-localbuild20221121055958" />
-    <PackageReference Include="Cosmos.Debug.Kernel" Version="0.1.0-localbuild20221121060004" />
-    <PackageReference Include="Cosmos.System2" Version="0.1.0-localbuild20221121060004" />
+    <PackageReference Include="Cosmos.Kernel" Version="3.0.82" />
+    <PackageReference Include="Cosmos.Kernel.System" Version="3.0.82" />
   </ItemGroup>
 </Project>

@@ -58,9 +58,10 @@ dotnet test src/SurfOS.Tests/SurfOS.Tests.csproj
 ./scripts/Publish-SurfOS.sh
 ```
 
-`SurfOS.Cosmos` is an experimental Cosmos-based project and currently depends on packages
-that are not published on NuGet. It is included in the solution for development, but is not
-part of the normal macOS build path.
+`SurfOS.Cosmos` is an experimental bare-metal kernel project configured for Cosmos Gen3.
+It is included in the solution for development, but is not part of the normal macOS build
+path while its former Cosmos Gen2 APIs are migrated. See the
+[Gen3 migration notes](docs/cosmos-gen3-migration.md).
 
 `Publish-SurfOS.sh` creates a self-contained macOS archive in `dist/`. It selects the
 current Mac architecture automatically, or accepts `osx-arm64` or `osx-x64` explicitly.
@@ -86,6 +87,7 @@ surfcloud-seed/            # Local package, theme, and music seed data
 ## Key documentation
 
 - [Architecture](docs/architecture.md)
+- [Cosmos Gen3 migration](docs/cosmos-gen3-migration.md)
 - [Recovery](docs/recovery.md)
 - [Package format](docs/package-format.md)
 - [SurfCloud repository](docs/surfcloud-repository.md)
