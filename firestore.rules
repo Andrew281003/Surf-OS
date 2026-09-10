@@ -1,0 +1,27 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    // Collection: surfcloudUsers
+    // Document ID: Google OpenID Connect subject. It is assigned only
+    // by the trusted SurfCloud publisher after validating an ID token.
+    // Fields:
+    //   - usedBytes: number, current retained package/source bytes.
+    //   - reservedBytes: number, temporary bytes reserved during upload.
+    //   - quotaBytes: number, always 16106127360 (15 GiB).
+    // Subcollection: packages
+    // Document ID: SurfCloud package ID.
+    // Fields: id, totalBytes, packageDriveFileId, sourceDriveFileId,
+    // visibility, and publishedAt.
+    //
+    // This is accounting and Drive-object metadata. It must never be
+    // directly readable or writable by a SurfOS client; Cloud Run uses
+    // server credentials, which bypass Firestore Security Rules.
+    // ===============================================================
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -1,0 +1,68 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>SurfOS</AssemblyName>
+    <RootNamespace>SurfOS</RootNamespace>
+    <AssemblyTitle>SurfOS</AssemblyTitle>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(OS)' == 'Windows_NT'">
+    <ApplicationIcon>icon.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\SurfOS.Core\**\*.cs" />
+    <Compile Include="..\SurfOS.Domain\**\*.cs" />
+    <Compile Include="..\SurfOS.Features\**\*.cs" />
+    <Compile Include="..\SurfOS.Infrastructure\**\*.cs" />
+    <Compile Update="..\SurfOS.Features\Installer\Menus\BIOS.cs">
+      <Link>Installer\Menus\BIOS.cs</Link>
+    </Compile>
+    <Compile Update="..\SurfOS.Features\Installer\Menus\Boot_Manager.cs">
+      <Link>Installer\Menus\Boot_Manager.cs</Link>
+    </Compile>
+    <Compile Update="..\SurfOS.Domain\Filesystem\VirtualFileSystem.cs">
+      <Link>Music\Filesystem\VirtualFileSystem.cs</Link>
+    </Compile>
+    <Compile Update="..\SurfOS.Domain\Filesystem\VirtualFileSystem.cs">
+      <Link>Packages\Filesystem\VirtualFileSystem.cs</Link>
+    </Compile>
+    <Compile Update="..\SurfOS.Domain\Filesystem\VirtualFileSystem.cs">
+      <Link>Rendering\Filesystem\VirtualFileSystem.cs</Link>
+    </Compile>
+    <Compile Update="..\SurfOS.Domain\Filesystem\VirtualFileSystem.cs">
+      <Link>SurfAI\Filesystem\VirtualFileSystem.cs</Link>
+    </Compile>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="icon.ico" />
+    <None Include="..\..\scripts\Launch-SurfOS.cmd" Link="Launch-SurfOS.cmd"
+          Condition="!$([System.String]::Copy('$(RuntimeIdentifier)').StartsWith('osx-'))">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </None>
+    <None Include="..\..\scripts\Launch-SurfOS.sh" Link="Launch-SurfOS.sh">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </None>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Google.Cloud.Firestore" Version="4.2.0" />
+    <PackageReference Include="System.Windows.Extensions" Version="9.0.0" />
+  </ItemGroup>
+
+  <Target Name="RemoveStaleBundledCredentials" BeforeTargets="Build;Publish;Clean">
+    <ItemGroup>
+      <StaleBundledCredential Include="$(BaseOutputPath)**\secrets.json" />
+    </ItemGroup>
+    <Delete Files="@(StaleBundledCredential)" />
+  </Target>
+
+</Project>

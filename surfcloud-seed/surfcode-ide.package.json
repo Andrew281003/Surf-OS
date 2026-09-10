@@ -1,0 +1,11 @@
+{
+  "name": "surfcode-ide",
+  "displayName": "SurfCode IDE",
+  "version": "1.0.0",
+  "description": "A CLI-native project workspace and C# editor for SurfOS.",
+  "author": "SurfOS Core",
+  "command": "code",
+  "installKind": "app",
+  "targetFile": "surfcode-ide.pkg",
+  "tags": ["developer", "editor", "csharp", "cli"]
+}
