@@ -1,129 +1,109 @@
 # SurfOS
 
-SurfOS is a retro-style command-line OS simulator built with C# and .NET 9.
+**SurfOS is a retro command-line operating-system simulator, built with C# and .NET 9.**
+It models the experience of booting, configuring, and using an OS; it is not a real kernel
+or a replacement for macOS, Windows, or Linux.
 
-It isn’t a real operating system or kernel. Instead, it recreates the feel of one with boot screens, user accounts, a BIOS-style setup, virtual files, packages, system services, recovery tools, music, and a built-in assistant called SurfAI.
+## What you can do
 
-## Features
+- Start a simulated boot sequence and configure a virtual system.
+- Work with accounts, a virtual filesystem, services, processes, recovery tools, and backups.
+- Install packages, themes, music, and developer tooling through Surf Store and SurfCloud.
+- Use SurfAI for local help and troubleshooting—no external AI API is required.
 
-* Retro boot sequence, BIOS, safe mode, recovery, and diagnostics
-* User accounts, recovery codes, mail, alarms, calendar, calculator, and to-do list
-* Virtual filesystem with commands like `ls`, `cd`, `mkdir`, `cat`, `cp`, and `mv`
-* Process and service commands such as `ps`, `top`, `kill`, `service`, and `dmesg`
-* Surf Store package manager and SurfCloud support
-* Themes, cloud music, playlists, and downloads
-* SurfAI for package help, troubleshooting, and SurfCloud information
-* SurfCode IDE as an optional developer package
-* Kernel logs, backups, and crash reports
+## Quick start (macOS)
 
-## Requirements
+**Requires:** macOS 12+, the [.NET 9 SDK](https://dotnet.microsoft.com/download/dotnet/9.0), and a terminal.
 
-* Windows 10/11 or macOS 12+
-* .NET 9 SDK
-* Windows Terminal or the macOS Terminal app recommended
+```sh
+git clone --branch 'SurfOS(MacOS)' https://github.com/Andrew281003/Surf-OS.git
+cd Surf-OS
+./scripts/Launch-SurfOS.sh
+```
 
-## Build & Run
+Or run it directly with .NET:
 
-```powershell
-dotnet restore src/SurfOS.Console/SurfOS.csproj
-dotnet build src/SurfOS.Console/SurfOS.csproj
+```sh
 dotnet run --project src/SurfOS.Console/SurfOS.csproj
 ```
 
-You can also use `scripts/Launch-SurfOS.cmd` on Windows or
-`scripts/Launch-SurfOS.sh` on macOS for the intended console experience.
+At first launch, choose **Guided** setup for the fastest path or **Advanced** setup to
+configure the simulated disk, services, appearance, networking, privacy, and power options.
+On macOS, SurfOS stores its virtual filesystem in a regular application-support directory;
+it does not create or mount a disk image.
 
-On first launch, SurfOS offers **Guided** or **Advanced** setup. Windows creates a
-VHDX virtual system disk, formats it as NTFS, and mounts it as a normal drive—preferably
-`S:`. macOS uses a normal directory (by default under the user's Application Support
-folder) with the same simulated SurfFS capacity controls; it does not create or mount a
-disk image.
-
-Advanced setup lets you choose disk sizes from 4 GB to 512 GB, system components, appearance, networking, privacy, power options, and more.
-
-## Useful Commands
+## Try these commands
 
 ```text
 help
-surfai
+ls
 surf store
 surf search <name>
 surf install <package>
-surf list
-code
 music
-music cloud
+surfai packages
 dmesg
 service list
 backup MyBackup
-backup list
 ```
 
-## SurfCloud
+See the full [command reference](docs/command-reference.md).
 
-SurfCloud handles packages, themes, and music. It supports downloads, updates, searches, caching, and offline fallback.
-
-Bundled cloud URLs are encoded to keep raw links out of the project files. This is only obfuscation, not a security feature.
-
-## SurfAI
-
-SurfAI currently runs locally and does not use an external AI API.
-
-It can help with packages, themes, connection checks, SurfCloud errors, updates, and general SurfOS troubleshooting.
-
-```text
-surfai packages
-surfai themes
-surfai install neon-tide
-surfai online
-surfai explain Invalid SHA-256
-```
-
-## Distribution
-
-For another PC, use:
-
-```text
-Publish-SurfOS.cmd
-```
-
-This creates a self-contained Windows x64 ZIP in `dist`, so the destination PC does not need .NET installed.
-
-For Windows ARM:
-
-```text
-Publish-SurfOS.cmd win-arm64
-```
-
-For a self-contained macOS archive, run:
+## Build, test, and package
 
 ```sh
+dotnet restore src/SurfOS.Console/SurfOS.csproj
+dotnet build src/SurfOS.Console/SurfOS.csproj --no-restore
+dotnet test src/SurfOS.Tests/SurfOS.Tests.csproj
 ./scripts/Publish-SurfOS.sh
 ```
 
-The script selects `osx-arm64` or `osx-x64` for the current Mac. You can also pass
-either runtime explicitly, for example `./scripts/Publish-SurfOS.sh osx-arm64`.
+`SurfOS.Cosmos` is an experimental Cosmos-based project and currently depends on packages
+that are not published on NuGet. It is included in the solution for development, but is not
+part of the normal macOS build path.
 
-## Project Structure
+`Publish-SurfOS.sh` creates a self-contained macOS archive in `dist/`. It selects the
+current Mac architecture automatically, or accepts `osx-arm64` or `osx-x64` explicitly.
+
+## Repository map
 
 ```text
 src/
-├── Accounts/
-├── Apps/
-├── Boot/
-├── Cloud/
-├── Core/
-├── Installer/
-├── Media/
-├── Packages/
-├── Shell/
-└── UI/
+├── SurfOS.Console/        # Executable entry point and console presentation
+├── SurfOS.Cosmos/         # Boot, kernel, shell, installer, storage, and runtime
+├── SurfOS.Core/           # Shared application primitives and events
+├── SurfOS.Domain/         # Domain services and virtual filesystem models
+├── SurfOS.Features/       # Optional user-facing features and commands
+├── SurfOS.Infrastructure/ # Persistence, cloud, platform, and system integrations
+├── SurfOS.Tests/          # Automated tests
+└── SurfCloud.DrivePublisher/ # Publishes SurfCloud data to Google Drive
+
+scripts/                   # Launch, publish, and development helper scripts
+docs/                      # Architecture, recovery, package, and SurfCloud documentation
+surfcloud-seed/            # Local package, theme, and music seed data
 ```
+
+## Key documentation
+
+- [Architecture](docs/architecture.md)
+- [Recovery](docs/recovery.md)
+- [Package format](docs/package-format.md)
+- [SurfCloud repository](docs/surfcloud-repository.md)
+- [Google Drive setup](docs/surfcloud-google-drive-setup.md)
+
+## Platform notes
+
+This branch is the **macOS** version. The shared application model lives in the source tree;
+platform-specific launch and distribution behavior belongs in `scripts/` and infrastructure
+code. The Windows branch is maintained separately.
 
 ## Contributing
 
-Keep SurfCloud URLs encoded, avoid committing generated files from `bin/`, `obj/`, `.vs/`, or local SurfOS data, and run a build before committing.
+Before opening a change, build the solution and run the tests. Do not commit generated
+`bin/`, `obj/`, `dist/`, IDE metadata, or local SurfOS data. Keep secrets and credentials
+out of the repository.
 
 ## License
 
-There is currently no license file. Add one before treating SurfOS as reusable open-source software.
+No license has been chosen yet. Until one is added, do not treat this project as reusable
+open-source software.
