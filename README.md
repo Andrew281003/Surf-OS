@@ -58,11 +58,6 @@ dotnet test src/SurfOS.Tests/SurfOS.Tests.csproj
 ./scripts/Publish-SurfOS.sh
 ```
 
-`SurfOS.Cosmos` is an experimental bare-metal kernel project configured for Cosmos Gen3.
-It is included in the solution for development, but is not part of the normal macOS build
-path while its former Cosmos Gen2 APIs are migrated. See the
-[Gen3 migration notes](docs/cosmos-gen3-migration.md).
-
 `Publish-SurfOS.sh` creates a self-contained macOS archive in `dist/`. It selects the
 current Mac architecture automatically, or accepts `osx-arm64` or `osx-x64` explicitly.
 
@@ -71,13 +66,11 @@ current Mac architecture automatically, or accepts `osx-arm64` or `osx-x64` expl
 ```text
 src/
 ├── SurfOS.Console/        # Executable entry point and console presentation
-├── SurfOS.Cosmos/         # Boot, kernel, shell, installer, storage, and runtime
 ├── SurfOS.Core/           # Shared application primitives and events
 ├── SurfOS.Domain/         # Domain services and virtual filesystem models
 ├── SurfOS.Features/       # Optional user-facing features and commands
 ├── SurfOS.Infrastructure/ # Persistence, cloud, platform, and system integrations
 ├── SurfOS.Tests/          # Automated tests
-└── SurfCloud.DrivePublisher/ # Publishes SurfCloud data to Google Drive
 
 scripts/                   # Launch, publish, and development helper scripts
 docs/                      # Architecture, recovery, package, and SurfCloud documentation
@@ -87,11 +80,9 @@ surfcloud-seed/            # Local package, theme, and music seed data
 ## Key documentation
 
 - [Architecture](docs/architecture.md)
-- [Cosmos Gen3 migration](docs/cosmos-gen3-migration.md)
 - [Recovery](docs/recovery.md)
 - [Package format](docs/package-format.md)
 - [SurfCloud repository](docs/surfcloud-repository.md)
-- [Google Drive setup](docs/surfcloud-google-drive-setup.md)
 
 ## Platform notes
 
@@ -109,3 +100,4 @@ out of the repository.
 
 No license has been chosen yet. Until one is added, do not treat this project as reusable
 open-source software.
+
