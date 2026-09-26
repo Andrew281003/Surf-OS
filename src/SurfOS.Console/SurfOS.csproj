@@ -42,11 +42,6 @@
 
   <ItemGroup>
     <Content Include="icon.ico" />
-    <None Include="..\..\scripts\Launch-SurfOS.cmd" Link="Launch-SurfOS.cmd"
-          Condition="!$([System.String]::Copy('$(RuntimeIdentifier)').StartsWith('osx-'))">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
-    </None>
     <None Include="..\..\scripts\Launch-SurfOS.sh" Link="Launch-SurfOS.sh">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
