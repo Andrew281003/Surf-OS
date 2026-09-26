@@ -4,6 +4,9 @@
 ## Get latest from https://github.com/github/gitignore/blob/master/VisualStudio.gitignore
 
 # User-specific files
+/.DS_Store
+**/.DS_Store
+/.idea/
 *.rsuser
 *.suo
 *.user
@@ -178,6 +181,7 @@ DocProject/Help/html
 
 # Click-Once directory
 publish/
+dist/
 
 # Publish Web Output
 *.[Pp]ublish.xml
@@ -361,3 +365,12 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+
+# Sensitive cloud credentials
+secrets.json
+*.pem
+*.p12
+*.pfx
+*service-account*.json
+# Development-only catalog signing keys. Never distribute a development private key.
+.local/catalog-dev-keys/

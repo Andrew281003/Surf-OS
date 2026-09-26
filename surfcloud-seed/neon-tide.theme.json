@@ -1,0 +1,12 @@
+{
+  "ThemeName": "NeonTide",
+  "WindowTitle": "Neon Tide SurfOS",
+  "TargetColor": "Cyan",
+  "BackgroundColor": "Black",
+  "FontName": "Consolas",
+  "UILayout": "Default",
+  "WelcomeMessage": "Neon Tide online.",
+  "PromptStyle": "Linux",
+  "AsciiArt": " _   _                  _____ _     _      \n| \\ | | ___  ___  _ __ |_   _(_) __| | ___ \n|  \\| |/ _ \\/ _ \\| '_ \\  | | | |/ _` |/ _ \\\n| |\\  |  __/ (_) | | | | | | | | (_| |  __/\n|_| \\_|\\___|\\___/|_| |_| |_| |_|\\__,_|\\___|",
+  "AuthorSignature": ""
+}

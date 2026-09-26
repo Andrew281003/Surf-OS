@@ -1,0 +1,41 @@
+{
+  "name": "SurfOS SurfCloud Repository",
+  "version": "1",
+  "packages": [
+    {
+      "name": "neon-tide",
+      "displayName": "Neon Tide Theme",
+      "version": "1.0.0",
+      "description": "A cyan-on-black SurfOS theme with a clean terminal feel.",
+      "author": "SurfOS Community",
+      "command": "theme load NeonTide",
+      "installKind": "theme",
+      "encodedPayloadUrl": "OwEGFjBWQFoAIRwEA20LABoDPxBcBSwBQAAHbBAKFiweG0gAPAIcCiwNC1MNN0hDVSAzAxEoZSQ3XyUbX0YCERJFFikHCTIrAUELDwwoGVg=",
+      "targetFile": "NeonTide.json",
+      "tags": ["theme", "cyan", "terminal"]
+    },
+    {
+      "name": "deep-terminal",
+      "displayName": "Deep Terminal Theme",
+      "version": "1.0.0",
+      "description": "A hacker-style green terminal theme for SurfOS.",
+      "author": "SurfOS Community",
+      "command": "theme load DeepTerminal",
+      "installKind": "theme",
+      "encodedPayloadUrl": "OwEGFjBWQFoAIRwEA20LABoDPxBcBSwBQAAHbBAKFiweG0gAPAIcCiwNC1MNN0hDADI8VyIKMiA1BycrOwEsfiMIIhIcW0w1IQE3KBRfARA=",
+      "targetFile": "DeepTerminal.json",
+      "tags": ["theme", "green", "terminal"]
+    },
+    {
+      "name": "surfcode-ide",
+      "displayName": "SurfCode IDE",
+      "version": "1.0.0",
+      "description": "A CLI-native project workspace and C# editor for SurfOS.",
+      "author": "SurfOS Core",
+      "command": "code",
+      "installKind": "app",
+      "targetFile": "surfcode-ide.pkg",
+      "tags": ["developer", "editor", "csharp", "cli"]
+    }
+  ]
+}
