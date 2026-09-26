@@ -1,6 +1,4 @@
 <Solution>
-  <Project Path="src/SurfOS.Cosmos/SurfOS.Cosmos.csproj"/>
   <Project Path="src/SurfOS.Console/SurfOS.csproj"/>
   <Project Path="src/SurfOS.Tests/SurfOS.Tests.csproj"/>
-  <Project Path="src/SurfCloud.DrivePublisher/SurfCloud.DrivePublisher.csproj"/>
 </Solution>
