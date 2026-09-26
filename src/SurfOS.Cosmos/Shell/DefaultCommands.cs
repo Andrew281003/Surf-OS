@@ -21,6 +21,7 @@ namespace SurfOS.Shell
             registry.Register(new ClearCommand());
             registry.Register(new InfoCommand(context));
             registry.Register(new WhoAmICommand(context));
+            registry.Register(new ProfileCommand(context));
             registry.Register(new LoginCommand(context));
             registry.Register(new LogoutCommand(context));
             registry.Register(new RebootCommand(context));

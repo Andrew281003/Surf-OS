@@ -15,7 +15,7 @@ namespace SurfOS.Boot
             Console.WriteLine(exception == null ? "No diagnostic was supplied." : exception.Message);
             Console.WriteLine();
             Console.WriteLine("The CPU has been halted to protect the system.");
-            Cosmos.Core.CPU.Halt();
+            Cosmos.Kernel.System.Power.Halt();
         }
     }
 }

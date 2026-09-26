@@ -368,3 +368,9 @@ FodyWeavers.xsd
 
 # Sensitive cloud credentials
 secrets.json
+*.pem
+*.p12
+*.pfx
+*service-account*.json
+# Development-only catalog signing keys. Never distribute a development private key.
+.local/catalog-dev-keys/

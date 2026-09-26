@@ -415,18 +415,9 @@ internal static class Install_Setup
             return;
         }
 
-        int accessMode = ChooseIndex(
-            "SurfCloud sign in (optional)",
-            ["Continue without an account", "Link a SurfCloud identity"], 0);
-        Import.Variables.surfCloudSignedIn = accessMode == 1;
-        Import.Variables.surfCloudAccount = accessMode == 1
-            ? ReadText("SurfCloud account name or email", Import.Variables.userName, 80)
-            : string.Empty;
-
-        if (Import.Variables.surfCloudSignedIn)
-        {
-            Console.WriteLine("Identity saved locally. Online credential verification is not yet available.");
-        }
+        Import.Variables.surfCloudSignedIn = false;
+        Import.Variables.surfCloudAccount = string.Empty;
+        Console.WriteLine("Cloud account features require a verified Google ID token from an external sign-in flow.");
     }
 
     private static void ConfigureSecurity(int step, int totalSteps)

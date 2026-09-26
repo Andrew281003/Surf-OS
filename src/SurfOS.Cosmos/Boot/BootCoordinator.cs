@@ -49,7 +49,7 @@ namespace SurfOS.Boot
             reporter.Ok("User services initialized");
 
             SessionService sessions = new SessionService(users);
-            AuthenticationConsole authentication = new AuthenticationConsole(sessions);
+            AuthenticationConsole authentication = new AuthenticationConsole(sessions, users);
             authentication.LoginUntilSuccessful();
 
             PermissionManager permissions = new PermissionManager(sessions, authentication);

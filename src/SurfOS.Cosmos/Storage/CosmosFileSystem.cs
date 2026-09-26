@@ -1,50 +1,37 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using Cosmos.System.FileSystem;
-using Cosmos.System.FileSystem.Listing;
-using Cosmos.System.FileSystem.VFS;
+using Cosmos.Kernel.HAL.Interfaces.Devices;
+using Cosmos.Kernel.HAL.Vfs;
+using Cosmos.Kernel.System.Filesystems.Fat;
+using Cosmos.Kernel.System.Storage;
+using Cosmos.Kernel.System.Vfs;
 
 namespace SurfOS.Storage
 {
     public sealed class CosmosFileSystem : IFileSystemService
     {
+        private const string MountPoint = "/mnt";
         private const long BytesPerMegabyte = 1048576;
-        private const long MbrFirstPartitionOffsetBytes = 63 * 512;
-        private const long MaximumFat32SizeMegabytes = 131071;
         private const int MaximumTextFileSize = 65536;
         private bool _initialized;
-        private CosmosVFS _vfs;
 
-        public string DriveRoot { get; private set; }
-        public string CurrentDirectory { get; private set; }
-        public string LastError { get; private set; }
-        public bool HasMountedVolume { get { return DriveRoot != null && DriveRoot.Length > 0; } }
+        public string DriveRoot { get; private set; } = string.Empty;
+        public string CurrentDirectory { get; private set; } = string.Empty;
+        public string LastError { get; private set; } = string.Empty;
+        public bool HasMountedVolume { get { return DriveRoot.Length > 0; } }
 
         public bool Initialize()
         {
-            if (_initialized)
-            {
-                return true;
-            }
-
+            if (_initialized) return true;
             try
             {
-                _vfs = new CosmosVFS();
-                VFSManager.RegisterVFS(_vfs, false, false);
-                List<string> drives = VFSManager.GetLogicalDrives();
-                if (drives == null || drives.Count == 0)
+                if (!VfsManager.RegisterFilesystem("fat", new FatFilesystemType()))
+                    throw new InvalidOperationException("Could not register the FAT filesystem driver.");
+                for (int index = 0; index < StorageManager.Partitions.Count; index++)
                 {
-                    DriveRoot = string.Empty;
-                    CurrentDirectory = string.Empty;
-                    LastError = string.Empty;
-                    _initialized = true;
-                    return true;
+                    if (TryMount(StorageManager.Partitions[index])) break;
                 }
-
-                DriveRoot = NormalizeDriveRoot(drives[0]);
-                CurrentDirectory = DriveRoot;
-                LastError = string.Empty;
                 _initialized = true;
                 return true;
             }
@@ -55,260 +42,107 @@ namespace SurfOS.Storage
             }
         }
 
-        public int GetPhysicalDiskCount()
+        private bool TryMount(Partition partition)
         {
-            return _vfs == null ? 0 : _vfs.GetDisks().Count;
+            VfsManager.VfsMount mount;
+            if (!VfsManager.TryMount("fat", partition, MountFlags.None, MountPoint, out mount)) return false;
+            DriveRoot = MountPoint + "/";
+            CurrentDirectory = DriveRoot;
+            LastError = string.Empty;
+            return true;
         }
+
+        public int GetPhysicalDiskCount() { return StorageManager.DeviceCount; }
 
         public long GetPhysicalDiskSizeMegabytes(int diskIndex)
         {
-            List<Disk> disks = _vfs.GetDisks();
-            if (diskIndex < 0 || diskIndex >= disks.Count) { throw new InvalidOperationException("Disk index is out of range."); }
-            return disks[diskIndex].Size / BytesPerMegabyte;
+            IBlockDevice disk = GetDisk(diskIndex);
+            return (long)(disk.BlockCount * disk.BlockSize / BytesPerMegabyte);
+        }
+
+        private static IBlockDevice GetDisk(int diskIndex)
+        {
+            if (diskIndex < 0 || diskIndex >= StorageManager.DeviceCount)
+                throw new InvalidOperationException("Disk index is out of range.");
+            return StorageManager.GetDevice(diskIndex);
         }
 
         public void PreparePhysicalDisk(int diskIndex)
         {
-            List<Disk> disks = _vfs.GetDisks();
-            if (diskIndex < 0 || diskIndex >= disks.Count) { throw new InvalidOperationException("Disk index is out of range."); }
-            Disk disk = disks[diskIndex];
-            long usableSizeMegabytes = (disk.Size - MbrFirstPartitionOffsetBytes) / BytesPerMegabyte;
-            if (usableSizeMegabytes < 32)
+            IBlockDevice disk = GetDisk(diskIndex);
+            if (disk.BlockSize != 512 || disk.BlockCount <= 2048 + 65536)
+                throw new InvalidOperationException("SurfOS requires a disk larger than 32 MB with 512-byte sectors.");
+            ulong usableSectors = disk.BlockCount - 2048;
+            if (usableSectors * disk.BlockSize / BytesPerMegabyte > 131071)
+                throw new InvalidOperationException("SurfOS supports installation disks up to 128 GB (MBR/FAT32).");
+            for (int i = 0; i < VfsManager.Mounts.Count; i++)
             {
-                throw new InvalidOperationException("The initial Cosmos FAT disk must have at least 32 MB of usable space.");
-            }
-            if (usableSizeMegabytes > MaximumFat32SizeMegabytes)
-            {
-                throw new InvalidOperationException("This Cosmos release supports installation disks up to 128 GB (MBR/FAT32).");
-            }
-            int sizeMegabytes = (int)usableSizeMegabytes;
-            for (int index = 0; index < disk.Partitions.Count; index++)
-            {
-                if (disk.Partitions[index].MountedFS != null)
-                {
+                Partition mounted = VfsManager.Mounts[i].Partition;
+                if (mounted != null && mounted.Host == disk)
                     throw new InvalidOperationException("A mounted disk cannot be erased by first-boot setup.");
-                }
             }
-            while (disk.Partitions.Count > 0) { disk.DeletePartition(0); }
-            disk.CreatePartition(sizeMegabytes);
-            FormatFat32(disk.Partitions[0]);
-            disk.MountPartition(0);
-            List<string> drives = VFSManager.GetLogicalDrives();
-            if (drives == null || drives.Count == 0)
+
+            // StorageInstaller obtains an explicit ERASE confirmation before this call.
+            Mbr.Create(disk);
+            if (!PartitionManager.Create(disk, 2048, usableSectors, 0x0C, Gpt.BasicDataPartitionType))
+                throw new InvalidOperationException("Could not create the SurfOS partition.");
+            StorageManager.RescanPartitions(disk);
+            for (int i = 0; i < StorageManager.Partitions.Count; i++)
             {
-                throw new InvalidOperationException("The formatted partition did not mount. Reboot and try again.");
+                Partition partition = StorageManager.Partitions[i];
+                if (partition.Host != disk) continue;
+                FatFormatOptions options = new FatFormatOptions { Type = FatType.Fat32, VolumeLabel = "SURFOS     " };
+                if (!VfsManager.TryFormat("fat", partition, options))
+                    throw new InvalidOperationException("Could not format the SurfOS partition as FAT32.");
+                if (!TryMount(partition))
+                    throw new InvalidOperationException("The formatted partition did not mount.");
+                return;
             }
-            DriveRoot = NormalizeDriveRoot(drives[drives.Count - 1]);
-            CurrentDirectory = DriveRoot;
-        }
-
-        private static void FormatFat32(ManagedPartition partition)
-        {
-            var device = partition.Host;
-            if (device.BlockSize != 512)
-            {
-                throw new InvalidOperationException("SurfOS FAT32 formatting currently requires 512-byte disk sectors.");
-            }
-            if (device.BlockCount > uint.MaxValue)
-            {
-                throw new InvalidOperationException("The selected partition is too large for MBR/FAT32.");
-            }
-
-            const uint bytesPerSector = 512;
-            const uint sectorsPerCluster = 1;
-            const uint reservedSectors = 32;
-            const uint fatCount = 2;
-            uint totalSectors = (uint)device.BlockCount;
-            ulong numerator = totalSectors - reservedSectors + (2 * sectorsPerCluster);
-            ulong denominator = (sectorsPerCluster * bytesPerSector / 4) + fatCount;
-            uint fatSectors = (uint)(numerator / denominator + 1);
-
-            byte[] boot = new byte[bytesPerSector];
-            boot[0] = 0xEB;
-            boot[1] = 0x58;
-            boot[2] = 0x90;
-            WriteAscii(boot, 3, "SURFOS  ");
-            WriteUInt16(boot, 11, (ushort)bytesPerSector);
-            boot[13] = (byte)sectorsPerCluster;
-            WriteUInt16(boot, 14, (ushort)reservedSectors);
-            boot[16] = (byte)fatCount;
-            boot[21] = 0xF8;
-            WriteUInt32(boot, 32, totalSectors);
-            WriteUInt32(boot, 36, fatSectors);
-            WriteUInt32(boot, 44, 2);
-            WriteUInt16(boot, 48, 1);
-            WriteUInt16(boot, 50, 6);
-            boot[64] = 0x80;
-            boot[66] = 0x29;
-            WriteUInt32(boot, 67, 0x53465231);
-            WriteAscii(boot, 71, "SURFOS     ");
-            WriteAscii(boot, 82, "FAT32   ");
-            boot[510] = 0x55;
-            boot[511] = 0xAA;
-
-            byte[] info = new byte[bytesPerSector];
-            WriteUInt32(info, 0, 0x41615252);
-            WriteUInt32(info, 484, 0x61417272);
-            WriteUInt32(info, 488, uint.MaxValue);
-            WriteUInt32(info, 492, uint.MaxValue);
-            WriteUInt32(info, 508, 0xAA550000);
-
-            byte[] firstFatSector = new byte[bytesPerSector];
-            WriteUInt32(firstFatSector, 0, 0x0FFFFFF8);
-            WriteUInt32(firstFatSector, 4, 0x0FFFFFFF);
-            WriteUInt32(firstFatSector, 8, 0x0FFFFFFF);
-
-            ClearSectors(device, reservedSectors, fatSectors * fatCount + sectorsPerCluster);
-            device.WriteBlock(0, 1, ref boot);
-            device.WriteBlock(6, 1, ref boot);
-            device.WriteBlock(1, 1, ref info);
-            device.WriteBlock(7, 1, ref info);
-            for (uint fat = 0; fat < fatCount; fat++)
-            {
-                ulong start = reservedSectors + (fat * fatSectors);
-                device.WriteBlock(start, 1, ref firstFatSector);
-            }
-        }
-
-        private static void ClearSectors(Cosmos.HAL.BlockDevice.BlockDevice device, uint startSector, uint sectorCount)
-        {
-            const uint sectorsPerWrite = 128;
-            byte[] zeros = new byte[sectorsPerWrite * 512];
-            uint cleared = 0;
-            while (cleared < sectorCount)
-            {
-                uint count = sectorCount - cleared;
-                if (count > sectorsPerWrite) { count = sectorsPerWrite; }
-                if (count == sectorsPerWrite)
-                {
-                    device.WriteBlock(startSector + cleared, count, ref zeros);
-                }
-                else
-                {
-                    byte[] remainder = new byte[count * 512];
-                    device.WriteBlock(startSector + cleared, count, ref remainder);
-                }
-                cleared += count;
-            }
-        }
-
-        private static void WriteUInt16(byte[] data, int offset, ushort value)
-        {
-            data[offset] = (byte)value;
-            data[offset + 1] = (byte)(value >> 8);
-        }
-
-        private static void WriteUInt32(byte[] data, int offset, uint value)
-        {
-            data[offset] = (byte)value;
-            data[offset + 1] = (byte)(value >> 8);
-            data[offset + 2] = (byte)(value >> 16);
-            data[offset + 3] = (byte)(value >> 24);
-        }
-
-        private static void WriteAscii(byte[] data, int offset, string value)
-        {
-            for (int index = 0; index < value.Length; index++)
-            {
-                data[offset + index] = (byte)value[index];
-            }
+            throw new InvalidOperationException("The new partition was not detected.");
         }
 
         public void EnsureSystemLayout()
         {
-            string[] directories =
+            string[] directories = { "/System", "/Users", "/Apps", "/Packages", "/Config", "/Logs", "/Temp" };
+            for (int i = 0; i < directories.Length; i++)
             {
-                "/System", "/Users", "/Apps", "/Packages", "/Config", "/Logs", "/Temp"
-            };
-            for (int index = 0; index < directories.Length; index++)
-            {
-                string path = ResolvePath(directories[index]);
-                if (!Directory.Exists(path))
-                {
-                    Directory.CreateDirectory(path);
-                }
+                string path = ResolvePath(directories[i]);
+                if (!Directory.Exists(path)) Directory.CreateDirectory(path);
             }
         }
 
         public string ResolvePath(string path)
         {
-            if (path == null || path.Trim().Length == 0)
-            {
-                return CurrentDirectory;
-            }
-
-            string value = path.Trim().Replace('/', '\\');
-            string combined;
-            int inputColon = value.IndexOf(':');
-            if (inputColon > 0 && inputColon + 1 < value.Length && value[inputColon + 1] == '\\')
-            {
-                combined = value;
-            }
-            else if (value[0] == '\\')
-            {
-                combined = DriveRoot + value.Substring(1);
-            }
-            else
-            {
-                combined = CurrentDirectory + (CurrentDirectory.EndsWith("\\") ? string.Empty : "\\") + value;
-            }
-
-            string root = NormalizeDriveRoot(DriveRoot);
-            int combinedColon = combined.IndexOf(':');
-            if (combinedColon < 1 || combinedColon + 1 >= combined.Length || combined[combinedColon + 1] != '\\')
-            {
-                throw new InvalidOperationException("Path does not contain a valid Cosmos drive root.");
-            }
-            string requestedRoot = NormalizeDriveRoot(combined.Substring(0, combinedColon + 1));
-            if (requestedRoot != root)
-            {
-                throw new InvalidOperationException("Path root " + requestedRoot + " is outside mounted root " + root + ".");
-            }
-            string remainder = combined.Substring(combinedColon + 2);
-            string[] parts = remainder.Split('\\');
+            if (!HasMountedVolume) throw new InvalidOperationException("No SurfOS volume is mounted.");
+            if (string.IsNullOrWhiteSpace(path)) return CurrentDirectory;
+            string value = path.Trim().Replace('\\', '/');
+            string combined = value.StartsWith("/") ? value : ToDisplayPath(CurrentDirectory).TrimEnd('/') + "/" + value;
+            string[] parts = combined.Split('/');
             List<string> clean = new List<string>();
-            for (int index = 0; index < parts.Length; index++)
+            for (int i = 0; i < parts.Length; i++)
             {
-                string part = parts[index];
-                if (part.Length == 0 || part == ".")
-                {
-                    continue;
-                }
+                string part = parts[i];
+                if (part.Length == 0 || part == ".") continue;
                 if (part == "..")
                 {
-                    if (clean.Count > 0)
-                    {
-                        clean.RemoveAt(clean.Count - 1);
-                    }
+                    if (clean.Count > 0) clean.RemoveAt(clean.Count - 1);
                     continue;
                 }
-                if (part.IndexOf(':') >= 0)
-                {
-                    throw new InvalidOperationException("Invalid path component: " + part);
-                }
+                if (part.IndexOf(':') >= 0) throw new InvalidOperationException("Invalid path component: " + part);
                 clean.Add(part);
             }
-
-            string result = root;
-            for (int index = 0; index < clean.Count; index++)
-            {
-                result += clean[index];
-                if (index < clean.Count - 1)
-                {
-                    result += "\\";
-                }
-            }
-            return result;
+            string result = MountPoint;
+            for (int i = 0; i < clean.Count; i++) result += "/" + clean[i];
+            return clean.Count == 0 ? DriveRoot : result;
         }
 
         public string ToDisplayPath(string physicalPath)
         {
-            string resolved = ResolvePath(physicalPath);
-            if (resolved.Length <= DriveRoot.Length)
-            {
-                return "/";
-            }
-            return "/" + resolved.Substring(DriveRoot.Length).Replace('\\', '/');
+            if (string.IsNullOrEmpty(physicalPath)) return "/";
+            string value = physicalPath.Replace('\\', '/');
+            if (value == MountPoint || value == DriveRoot) return "/";
+            if (value.StartsWith(DriveRoot, StringComparison.Ordinal)) return "/" + value.Substring(DriveRoot.Length);
+            return value.StartsWith("/") ? value : "/" + value;
         }
 
         public bool FileExists(string path) { return File.Exists(ResolvePath(path)); }
@@ -317,124 +151,69 @@ namespace SurfOS.Storage
         public void SetCurrentDirectory(string path)
         {
             string resolved = ResolvePath(path);
-            if (!Directory.Exists(resolved))
-            {
-                throw new InvalidOperationException("Directory not found: " + ToDisplayPath(resolved));
-            }
+            if (!Directory.Exists(resolved)) throw new InvalidOperationException("Directory not found: " + ToDisplayPath(resolved));
             CurrentDirectory = resolved;
         }
 
         public List<FileSystemEntry> List(string path)
         {
             string resolved = ResolvePath(path);
-            if (!Directory.Exists(resolved))
-            {
-                throw new InvalidOperationException("Directory not found: " + ToDisplayPath(resolved));
-            }
-
+            if (!Directory.Exists(resolved)) throw new InvalidOperationException("Directory not found: " + ToDisplayPath(resolved));
             List<FileSystemEntry> result = new List<FileSystemEntry>();
             string[] directories = Directory.GetDirectories(resolved);
-            for (int index = 0; index < directories.Length; index++)
-            {
-                result.Add(new FileSystemEntry(GetName(directories[index]), true, 0));
-            }
+            for (int i = 0; i < directories.Length; i++) result.Add(new FileSystemEntry(Path.GetFileName(directories[i]), true, 0));
             string[] files = Directory.GetFiles(resolved);
-            for (int index = 0; index < files.Length; index++)
-            {
-                long size = 0;
-                try
-                {
-                    using (FileStream stream = File.OpenRead(files[index])) { size = stream.Length; }
-                }
-                catch { }
-                result.Add(new FileSystemEntry(GetName(files[index]), false, size));
-            }
+            for (int i = 0; i < files.Length; i++) result.Add(new FileSystemEntry(Path.GetFileName(files[i]), false, new FileInfo(files[i]).Length));
             return result;
         }
 
-        public void CreateDirectory(string path)
-        {
-            string resolved = ResolvePath(path);
-            if (Directory.Exists(resolved)) { return; }
-            Directory.CreateDirectory(resolved);
-        }
-
+        public void CreateDirectory(string path) { Directory.CreateDirectory(ResolvePath(path)); }
         public void CreateFile(string path)
         {
             string resolved = ResolvePath(path);
-            if (!File.Exists(resolved))
-            {
-                using (Stream stream = CreateNewFileStream(resolved)) { }
-            }
+            if (!File.Exists(resolved)) using (File.Create(resolved)) { }
         }
 
         public string ReadAllText(string path)
         {
-            using (Stream stream = VFSManager.GetFileStream(ResolvePath(path)))
+            using (Stream stream = File.OpenRead(ResolvePath(path)))
             {
-                if (stream.Length > MaximumTextFileSize) { throw new InvalidOperationException("Text file exceeds 64 KiB."); }
+                if (stream.Length > MaximumTextFileSize) throw new InvalidOperationException("Text file exceeds 64 KiB.");
                 byte[] bytes = new byte[(int)stream.Length];
                 int read = 0;
                 while (read < bytes.Length)
                 {
                     int count = stream.Read(bytes, read, bytes.Length - read);
-                    if (count <= 0) { break; }
+                    if (count <= 0) break;
                     read += count;
                 }
                 char[] characters = new char[read];
-                for (int index = 0; index < read; index++) { characters[index] = bytes[index] <= 127 ? (char)bytes[index] : '?'; }
+                for (int i = 0; i < read; i++) characters[i] = bytes[i] <= 127 ? (char)bytes[i] : '?';
                 return new string(characters);
             }
         }
 
         public void WriteAllText(string path, string content)
         {
-            string resolved = ResolvePath(path);
-            using (Stream stream = File.Exists(resolved) ? VFSManager.GetFileStream(resolved) : CreateNewFileStream(resolved))
-            {
-                stream.SetLength(0);
-                WriteAscii(stream, content);
-            }
+            using (Stream stream = File.Create(ResolvePath(path))) WriteAscii(stream, content);
         }
 
         public void AppendAllText(string path, string content)
         {
-            string resolved = ResolvePath(path);
-            using (Stream stream = File.Exists(resolved) ? VFSManager.GetFileStream(resolved) : CreateNewFileStream(resolved))
-            {
-                stream.Position = stream.Length;
-                WriteAscii(stream, content);
-            }
+            using (Stream stream = new FileStream(ResolvePath(path), FileMode.Append, FileAccess.Write)) WriteAscii(stream, content);
         }
 
         public void Copy(string source, string destination, bool overwrite)
-        {
-            File.Copy(ResolvePath(source), ResolvePath(destination), overwrite);
-        }
+        { File.Copy(ResolvePath(source), ResolvePath(destination), overwrite); }
 
         public void Move(string source, string destination, bool overwrite)
         {
-            string from = ResolvePath(source);
-            string to = ResolvePath(destination);
-            if (File.Exists(from))
-            {
-                if (File.Exists(to))
-                {
-                    if (!overwrite) { throw new InvalidOperationException("Destination already exists."); }
-                    File.Delete(to);
-                }
-                File.Copy(from, to, false);
-                File.Delete(from);
-                return;
-            }
+            string from = ResolvePath(source), to = ResolvePath(destination);
+            if (File.Exists(from)) { File.Move(from, to, overwrite); return; }
             if (Directory.Exists(from))
             {
-                if (Directory.Exists(to))
-                {
-                    throw new InvalidOperationException("Destination directory already exists.");
-                }
-                CopyDirectory(from, to);
-                Directory.Delete(from, true);
+                if (Directory.Exists(to)) throw new InvalidOperationException("Destination directory already exists.");
+                Directory.Move(from, to);
                 return;
             }
             throw new InvalidOperationException("Source was not found.");
@@ -443,103 +222,25 @@ namespace SurfOS.Storage
         public void Delete(string path, bool recursive)
         {
             string resolved = ResolvePath(path);
-            if (File.Exists(resolved))
-            {
-                File.Delete(resolved);
-                return;
-            }
-            if (Directory.Exists(resolved))
-            {
-                Directory.Delete(resolved, recursive);
-                return;
-            }
+            if (File.Exists(resolved)) { File.Delete(resolved); return; }
+            if (Directory.Exists(resolved)) { Directory.Delete(resolved, recursive); return; }
             throw new InvalidOperationException("Path was not found.");
         }
 
         public bool IsProtectedPath(string path)
         {
-            string display = ToDisplayPath(path).ToLower();
+            string display = ToDisplayPath(ResolvePath(path)).ToLowerInvariant();
             return display == "/system" || display.StartsWith("/system/") ||
                    display == "/config" || display.StartsWith("/config/") ||
                    display == "/logs" || display.StartsWith("/logs/") ||
                    display == "/users/users.db";
         }
 
-        private static string NormalizeDriveRoot(string drive)
-        {
-            string value = drive.Replace('/', '\\');
-            int colon = value.IndexOf(':');
-            if (colon < 1) { return string.Empty; }
-            return value.Substring(0, colon + 1) + "\\";
-        }
-
-        private static string GetName(string path)
-        {
-            string value = path.TrimEnd('\\');
-            int separator = value.LastIndexOf('\\');
-            return separator < 0 ? value : value.Substring(separator + 1);
-        }
-
-        private static void CopyDirectory(string source, string destination)
-        {
-            Directory.CreateDirectory(destination);
-            string[] files = Directory.GetFiles(source);
-            for (int index = 0; index < files.Length; index++)
-            {
-                File.Copy(files[index], destination + "\\" + GetName(files[index]), false);
-            }
-            string[] directories = Directory.GetDirectories(source);
-            for (int index = 0; index < directories.Length; index++)
-            {
-                CopyDirectory(directories[index], destination + "\\" + GetName(directories[index]));
-            }
-        }
-
-        private Stream CreateNewFileStream(string path)
-        {
-            string name;
-            string parentPath;
-            SplitParent(path, out parentPath, out name);
-            DirectoryEntry parent = _vfs.GetDirectory(parentPath);
-            Cosmos.System.FileSystem.FileSystem mounted = GetMountedFileSystem(path);
-            if (parent == null || mounted == null) { throw new InvalidOperationException("Parent directory is not mounted."); }
-            return mounted.CreateFile(parent, name).GetFileStream();
-        }
-
-        private Cosmos.System.FileSystem.FileSystem GetMountedFileSystem(string path)
-        {
-            string root = NormalizeDriveRoot(path.Substring(0, path.IndexOf(':') + 1));
-            List<Disk> disks = _vfs.GetDisks();
-            for (int diskIndex = 0; diskIndex < disks.Count; diskIndex++)
-            {
-                List<ManagedPartition> partitions = disks[diskIndex].Partitions;
-                for (int partitionIndex = 0; partitionIndex < partitions.Count; partitionIndex++)
-                {
-                    ManagedPartition partition = partitions[partitionIndex];
-                    if (partition.MountedFS != null && NormalizeDriveRoot(partition.RootPath) == root)
-                    {
-                        return partition.MountedFS;
-                    }
-                }
-            }
-            return null;
-        }
-
-        private static void SplitParent(string path, out string parentPath, out string name)
-        {
-            int separator = path.LastIndexOf('\\');
-            name = path.Substring(separator + 1);
-            parentPath = separator == path.IndexOf(':') + 1 ? path.Substring(0, separator + 1) : path.Substring(0, separator);
-        }
-
         private static void WriteAscii(Stream stream, string content)
         {
-            if (content.Length > MaximumTextFileSize) { throw new InvalidOperationException("Text file exceeds 64 KiB."); }
+            if (content.Length > MaximumTextFileSize) throw new InvalidOperationException("Text file exceeds 64 KiB.");
             byte[] bytes = new byte[content.Length];
-            for (int index = 0; index < content.Length; index++)
-            {
-                bytes[index] = content[index] <= 127 ? (byte)content[index] : (byte)'?';
-            }
+            for (int i = 0; i < content.Length; i++) bytes[i] = content[i] <= 127 ? (byte)content[i] : (byte)'?';
             stream.Write(bytes, 0, bytes.Length);
         }
     }

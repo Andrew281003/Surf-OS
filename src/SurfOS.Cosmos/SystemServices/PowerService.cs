@@ -1,5 +1,5 @@
 using SurfOS.Logging;
-using Sys = Cosmos.System;
+using Sys = Cosmos.Kernel.System;
 
 namespace SurfOS.SystemServices
 {

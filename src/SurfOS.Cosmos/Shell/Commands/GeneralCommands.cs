@@ -1,4 +1,5 @@
 using System;
+using SurfOS.Users;
 
 namespace SurfOS.Shell.Commands
 {
@@ -62,8 +63,32 @@ namespace SurfOS.Shell.Commands
         public string Description { get { return "Show the current account and role."; } }
         public void Execute(ParsedCommand command)
         {
-            Console.WriteLine(_context.Sessions.CurrentUser.Username +
-                (_context.Sessions.CurrentUser.IsAdministrator ? " (administrator)" : " (user)"));
+            UserAccount account = _context.Sessions.CurrentUser;
+            AvatarRenderer.Draw(account.AvatarId, AvatarSize.Large, account.ProfileColor, 0, false);
+            Console.WriteLine("Username: " + account.Username);
+            Console.WriteLine("Role: " + (account.IsAdministrator ? "administrator" : "user"));
+            Console.WriteLine("ID: " + account.Id);
+            Console.WriteLine("Home: " + account.HomeDirectory);
+        }
+    }
+
+    public sealed class ProfileCommand : ICommand
+    {
+        private readonly CommandContext _context;
+        public ProfileCommand(CommandContext context) { _context = context; }
+        public string Name { get { return "profile"; } }
+        public string Usage { get { return "profile"; } }
+        public string Description { get { return "Choose your avatar and profile color."; } }
+        public void Execute(ParsedCommand command)
+        {
+            UserAccount account = _context.Sessions.CurrentUser;
+            string id;
+            ConsoleColor color;
+            if (AvatarSelectionConsole.Choose(account.AvatarId, account.ProfileColor, out id, out color))
+            {
+                _context.Users.SetProfile(account, id, color);
+                Console.WriteLine("Profile saved.");
+            }
         }
     }
 }

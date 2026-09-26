@@ -1,16 +1,21 @@
 {
-  "version": "0.2.0",
-  "configurations": [
-    {
-      "name": "Launch SurfOS",
-      "type": "coreclr",
-      "request": "launch",
-      "preLaunchTask": "build SurfOS",
-      "program": "${workspaceFolder}/src/SurfOS.Console/bin/Debug/net9.0/SurfOS.exe",
-      "cwd": "${workspaceFolder}/src/SurfOS.Console/bin/Debug/net9.0",
-      "console": "externalTerminal",
-      "internalConsoleOptions": "neverOpen",
-      "stopAtEntry": false
-    }
-  ]
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Launch SurfOS",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build SurfOS",
+            "program": "${workspaceFolder}/src/SurfOS.Console/bin/Debug/net9.0/SurfOS.exe",
+            "cwd": "${workspaceFolder}/src/SurfOS.Console/bin/Debug/net9.0",
+            "console": "externalTerminal",
+            "internalConsoleOptions": "neverOpen",
+            "stopAtEntry": false
+        },
+        {
+            "name": "Cosmos: Debug Kernel",
+            "type": "cosmos-debug",
+            "request": "launch"
+        }
+    ]
 }

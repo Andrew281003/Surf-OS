@@ -8,6 +8,7 @@
     <AssemblyName>SurfOS</AssemblyName>
     <RootNamespace>SurfOS</RootNamespace>
     <AssemblyTitle>SurfOS</AssemblyTitle>
+    <DefaultItemExcludes>$(DefaultItemExcludes);**/secrets.json;**/*.pem;**/*.p12;**/*.pfx;**/*service-account*.json</DefaultItemExcludes>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(OS)' == 'Windows_NT'">
@@ -42,6 +43,7 @@
 
   <ItemGroup>
     <Content Include="icon.ico" />
+    <EmbeddedResource Include="Trust/catalog-public-prod-*.pub" LogicalName="SurfOS.Trust.%(Filename)%(Extension)" />
     <None Include="..\..\scripts\Launch-SurfOS.cmd" Link="Launch-SurfOS.cmd"
           Condition="!$([System.String]::Copy('$(RuntimeIdentifier)').StartsWith('osx-'))">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
@@ -54,15 +56,17 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Google.Cloud.Firestore" Version="4.2.0" />
+    <PackageReference Include="BouncyCastle.Cryptography" Version="2.7.0" />
     <PackageReference Include="System.Windows.Extensions" Version="9.0.0" />
   </ItemGroup>
 
-  <Target Name="RemoveStaleBundledCredentials" BeforeTargets="Build;Publish;Clean">
+  <Target Name="RejectBundledCredentials" BeforeTargets="Build;Publish">
     <ItemGroup>
-      <StaleBundledCredential Include="$(BaseOutputPath)**\secrets.json" />
+      <BundledCredential Include="$(BaseOutputPath)**/secrets.json;$(BaseOutputPath)**/*.pem;$(BaseOutputPath)**/*.p12;$(BaseOutputPath)**/*.pfx" />
+      <BundledCredential Include="$(PublishDir)/**/secrets.json;$(PublishDir)/**/*.pem;$(PublishDir)/**/*.p12;$(PublishDir)/**/*.pfx" Condition="'$(PublishDir)' != ''" />
     </ItemGroup>
-    <Delete Files="@(StaleBundledCredential)" />
+    <Message Importance="High" Condition="'@(BundledCredential)' != ''" Text="Credential-like artifact path: @(BundledCredential)" />
+    <Error Condition="'@(BundledCredential)' != ''" Text="Credential-like file found in build or publish output. Remove it manually before building." />
   </Target>
 
 </Project>

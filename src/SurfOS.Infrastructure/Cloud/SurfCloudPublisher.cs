@@ -1,4 +1,5 @@
 using System.Net.Http.Headers;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 
@@ -18,9 +19,9 @@ internal sealed record PublishResult(bool Success, string Message, string? Publi
 /// </summary>
 internal static class SurfCloudPublisher
 {
+    private static readonly HttpClient Client = new() { Timeout = TimeSpan.FromMinutes(2) };
     private const int MaximumResponseBytes = 1024 * 1024;
     private const string EndpointVariable = "SURFCLOUD_PUBLISH_URL";
-    private const string TokenVariable = "SURFCLOUD_TOKEN";
 
     public static async Task<PublishResult> PublishAsync(
         byte[] packageBytes,
@@ -38,15 +39,16 @@ internal static class SurfCloudPublisher
                 $"SurfCloud publishing is not configured. Set {EndpointVariable} to an HTTPS upload endpoint.");
         }
 
-        string token = Environment.GetEnvironmentVariable(TokenVariable) ?? string.Empty;
+        string? token = Cloud_Manager.GetVerifiedSessionToken();
+        if (string.IsNullOrWhiteSpace(token))
+            return new PublishResult(false, "Sign in to SurfCloud before publishing.");
+        using IncrementalHash operationHash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        operationHash.AppendData(packageBytes);
+        if (sourceSnapshot is not null) operationHash.AppendData(sourceSnapshot);
+        operationHash.AppendData(Encoding.UTF8.GetBytes(visibility.ToString().ToLowerInvariant()));
+        string operationId = Convert.ToHexString(operationHash.GetHashAndReset())[..32].ToLowerInvariant();
         try
         {
-            using HttpClient client = new() { Timeout = TimeSpan.FromMinutes(2) };
-            if (!string.IsNullOrWhiteSpace(token))
-            {
-                client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-            }
-
             using MultipartFormDataContent form = new();
             form.Add(new StringContent(
                 visibility.ToString().ToLowerInvariant(),
@@ -67,8 +69,13 @@ internal static class SurfCloudPublisher
                 form.Add(sourceContent, "source", $"{manifest.Id}-source.zip");
             }
 
-            using HttpResponseMessage response = await client.PostAsync(endpoint, form);
+            using HttpRequestMessage request = new(HttpMethod.Post, endpoint) { Content = form };
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            request.Headers.Add("Idempotency-Key", operationId);
+            using HttpResponseMessage response = await Client.SendAsync(request);
             string responseBody = await ReadBoundedResponseAsync(response);
+            if (response.StatusCode == System.Net.HttpStatusCode.Accepted)
+                return new PublishResult(false, $"SurfCloud publish is pending. Operation ID: {operationId}.");
             if (!response.IsSuccessStatusCode)
             {
                 string detail = TryReadMessage(responseBody) ?? response.ReasonPhrase ?? "upload rejected";
@@ -83,11 +90,35 @@ internal static class SurfCloudPublisher
         }
         catch (TaskCanceledException)
         {
-            return new PublishResult(false, "SurfCloud publish timed out. No completed upload was confirmed.");
+            string status = await GetOperationStatusAsync(endpoint, operationId, token);
+            if (status == "committed")
+                return new PublishResult(true, $"SurfCloud publish completed. Operation ID: {operationId}.");
+            return new PublishResult(false, $"SurfCloud publish outcome is {status}. Operation ID: {operationId}. Repeating the same request uses the same idempotency key.");
         }
         catch (HttpRequestException ex)
         {
             return new PublishResult(false, $"SurfCloud publish failed: {ex.Message}");
+        }
+    }
+
+    private static async Task<string> GetOperationStatusAsync(Uri endpoint, string operationId, string token)
+    {
+        try
+        {
+            using CancellationTokenSource deadline = new(TimeSpan.FromSeconds(10));
+            using HttpRequestMessage request = new(HttpMethod.Get, new Uri(endpoint, "/operations/" + operationId));
+            if (!string.IsNullOrWhiteSpace(token))
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            using HttpResponseMessage response = await Client.SendAsync(request, deadline.Token);
+            if (!response.IsSuccessStatusCode) return "unconfirmed";
+            string body = await ReadBoundedResponseAsync(response);
+            using JsonDocument document = JsonDocument.Parse(body);
+            return document.RootElement.TryGetProperty("status", out JsonElement value)
+                ? value.GetString() ?? "unconfirmed" : "unconfirmed";
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
+        {
+            return "unconfirmed";
         }
     }
 

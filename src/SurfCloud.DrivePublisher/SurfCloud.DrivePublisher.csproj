@@ -5,7 +5,11 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="BouncyCastle.Cryptography" Version="2.7.0" />
     <PackageReference Include="Google.Cloud.Firestore" Version="4.2.0" />
     <PackageReference Include="Google.Apis.Auth" Version="1.73.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="SurfCloud.DrivePublisher.Tests" />
   </ItemGroup>
 </Project>

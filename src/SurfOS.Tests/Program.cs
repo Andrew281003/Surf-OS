@@ -167,11 +167,42 @@ internal static class Program
             MinimumSurfOSVersion = "2.0.0"
         });
         Check(compatibleInstall, "current SurfOS version can install packages requiring version 2.0");
+        Check(RunShellCommand("surfcloud signout").Contains("signed out", StringComparison.OrdinalIgnoreCase) &&
+              Cloud_Manager.VerifiedSubject is null && Cloud_Manager.SignedOut,
+            "SurfCloud sign-out clears the verified in-memory session");
+        string? priorPublishUrl = Environment.GetEnvironmentVariable("SURFCLOUD_PUBLISH_URL");
+        try
+        {
+            Environment.SetEnvironmentVariable("SURFCLOUD_PUBLISH_URL", "http://localhost:1/publish");
+            PublishResult signedOutPublish = await SurfCloudPublisher.PublishAsync(
+                [1], "test.surfpkg", new StorePackageManifest { Id = "test" }, PackageVisibility.Private);
+            Check(!signedOutPublish.Success && signedOutPublish.Message.Contains("Sign in", StringComparison.OrdinalIgnoreCase),
+                "SurfCloud publishing requires the current verified session after sign-out");
+        }
+        finally { Environment.SetEnvironmentVariable("SURFCLOUD_PUBLISH_URL", priorPublishUrl); }
         Check(!CloudRepositoryManager.ValidateSha256(
                 typeof(Program).Assembly.Location,
                 string.Empty,
                 out _),
             "downloaded packages require a declared SHA-256");
+
+        string linkTarget = Path.Combine(testRoot, "package-link-target");
+        string linkPath = Path.Combine(root, "apps", "linked");
+        Directory.CreateDirectory(linkTarget);
+        try
+        {
+            Directory.CreateSymbolicLink(linkPath, linkTarget);
+            (bool linkedInstall, _) = await CloudRepositoryManager.InstallPackageAsync(new StorePackageManifest
+            {
+                Id = "linked-app", Name = "Linked app", InstallPath = "apps/linked/linked.surf"
+            });
+            Check(!linkedInstall && !File.Exists(Path.Combine(linkTarget, "linked.surf")),
+                "package installation refuses a linked destination directory");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Console.WriteLine("SKIP: host does not permit package symlink fixture");
+        }
 
         string outsideFile = Path.Combine(testRoot, "outside.txt");
         File.WriteAllText(outsideFile, "keep");
@@ -229,6 +260,25 @@ internal static class Program
             "valid package exports as a surfpkg archive");
         CLI_Engine.ValidateArchive(File.ReadAllBytes(exportPath));
         Check(true, "archive validation accepts a builder export");
+        StorePackageManifest signedLocalFixture;
+        using (ZipArchive exportedArchive = ZipFile.OpenRead(exportPath))
+        using (Stream embeddedManifest = exportedArchive.GetEntry("manifest.json")!.Open())
+            signedLocalFixture = System.Text.Json.JsonSerializer.Deserialize<StorePackageManifest>(embeddedManifest)!;
+        signedLocalFixture.Format = "surfpkg-v1";
+        signedLocalFixture.PackageSha256 = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(exportPath)));
+        signedLocalFixture.PublisherSubject = "test-subject";
+        string downloadedArchive = Path.Combine(testRoot, "signed-download.surfpkg");
+        File.Copy(exportPath, downloadedArchive);
+        CloudRepositoryManager.ExtractVerifiedArchiveAsync(downloadedArchive, signedLocalFixture).GetAwaiter().GetResult();
+        Check(File.ReadAllBytes(downloadedArchive).SequenceEqual(File.ReadAllBytes(Path.Combine(projectPath, "src", "night-wave.theme.json"))),
+            "trusted archive extraction installs only the verified payload");
+        string malformedDownload = Path.Combine(testRoot, "malformed-download.surfpkg");
+        File.WriteAllBytes(malformedDownload, new byte[64]);
+        signedLocalFixture.PackageSha256 = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(malformedDownload)));
+        bool rejectedMalformed = false;
+        try { CloudRepositoryManager.ExtractVerifiedArchiveAsync(malformedDownload, signedLocalFixture).GetAwaiter().GetResult(); }
+        catch (Exception) { rejectedMalformed = true; }
+        Check(rejectedMalformed, "signed digest cannot make a malformed remote archive installable");
         using (MemoryStream tampered = new())
         {
             tampered.Write(File.ReadAllBytes(exportPath)); tampered.Position = 0;
@@ -498,9 +548,12 @@ internal static class Program
               appList.Contains("Demo App", StringComparison.Ordinal) &&
               appList.Contains("ready", StringComparison.OrdinalIgnoreCase),
             "app --list shows installed launchable apps");
-        Check(RunShellCommand("app --open \"Demo App\"").Contains("demo-app-launched", StringComparison.Ordinal) &&
+        Check(RunShellCommand("app --open \"Demo App\"").Contains("third-party code", StringComparison.Ordinal) &&
+              CLI_Engine.LastExitCode == 1,
+            "app --open requires explicit permission for third-party launch commands");
+        Check(RunShellCommand("app --open \"Demo App\" --allow-third-party").Contains("demo-app-launched", StringComparison.Ordinal) &&
               CLI_Engine.LastExitCode == 0,
-            "app --open resolves display names and runs package launch commands");
+            "app --open resolves display names and runs explicitly permitted package launch commands");
         Check(RunShellCommand("app --open missing-app").Contains("not installed", StringComparison.OrdinalIgnoreCase) &&
               CLI_Engine.LastExitCode == 1,
             "app --open rejects unknown apps");

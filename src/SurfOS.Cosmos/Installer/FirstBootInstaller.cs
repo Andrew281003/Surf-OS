@@ -43,7 +43,11 @@ namespace SurfOS.Installer
                 Console.WriteLine("Passwords must match and contain at least 8 characters.");
             }
 
-            _users.CreateAdministrator(username, password);
+            UserAccount account = _users.CreateAdministrator(username, password);
+            string avatarId;
+            ConsoleColor color;
+            if (AvatarSelectionConsole.Choose(account.AvatarId, account.ProfileColor, out avatarId, out color))
+                _users.SetProfile(account, avatarId, color);
             SystemConfiguration settings = new SystemConfiguration();
             settings.DeviceName = device;
             settings.Language = "en-US";

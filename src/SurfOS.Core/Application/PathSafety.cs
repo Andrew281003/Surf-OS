@@ -29,6 +29,29 @@ internal static class PathSafety
                normalizedCandidate.StartsWith(normalizedRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
     }
 
+    public static bool HasLinkInPath(string candidate, string root)
+    {
+        if (!IsInsideRoot(candidate, root)) return true;
+        string current = Path.GetFullPath(root);
+        if (IsLink(current)) return true;
+        string relative = Path.GetRelativePath(current, Path.GetFullPath(candidate));
+        foreach (string part in relative.Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
+                     StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (part == ".") continue;
+            current = Path.Combine(current, part);
+            if (IsLink(current)) return true;
+        }
+        return false;
+    }
+
+    private static bool IsLink(string path)
+    {
+        try { return (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0; }
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException) { return false; }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return true; }
+    }
+
     public static bool IsSafeFileName(string value)
     {
         if (string.IsNullOrWhiteSpace(value) || value is "." or ".." ||

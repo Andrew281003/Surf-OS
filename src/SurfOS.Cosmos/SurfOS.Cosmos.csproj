@@ -1,13 +1,16 @@
-<Project Sdk="Cosmos.Sdk/3.0.82">
+<Project Sdk="Cosmos.Sdk/3.0.88">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
     <AssemblyName>SurfOS</AssemblyName>
     <RootNamespace>SurfOS</RootNamespace>
+    <CosmosKernelClass>SurfOS.Kernel</CosmosKernelClass>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Cosmos.Kernel" Version="3.0.82" />
-    <PackageReference Include="Cosmos.Kernel.System" Version="3.0.82" />
+    <PackageReference Include="Cosmos.Kernel" Version="3.0.88" />
+    <PackageReference Include="Cosmos.Kernel.System" Version="3.0.88" />
+    <GCCProject Include="Native" />
+    <UnmanagedEntryPointsAssembly Include="$(AssemblyName)" />
   </ItemGroup>
 </Project>

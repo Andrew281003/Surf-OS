@@ -40,7 +40,10 @@ if errorlevel 1 (
     exit /b 1
 )
 
-if exist "%OUT%\secrets.json" del /f /q "%OUT%\secrets.json"
+if exist "%OUT%\secrets.json" (
+    echo Credential-like file found in publish output. Remove it manually before publishing.
+    exit /b 1
+)
 
 powershell -NoProfile -Command "$content = @('SurfOS', '', 'Recommended: launch SurfOS using SurfOS.exe.', '', 'If the UI is broken, the application does not launch, or something is not working as expected, close SurfOS and launch it using Launch-SurfOS.cmd instead of the executable.'); Set-Content -LiteralPath '%OUT%\README.MD' -Value $content -Encoding UTF8"
 if errorlevel 1 (

@@ -460,25 +460,24 @@ internal sealed class MailService : ISurfService
 internal sealed class CloudPresenceService : ISurfService
 {
     public string Name => "CloudPresenceService";
-    public string Description => "Sends periodic Firestore presence heartbeats.";
+    public string Description => "Sends authenticated SurfCloud presence heartbeats.";
     public TimeSpan Interval => TimeSpan.FromMinutes(1);
 
     public async Task ExecuteAsync(CancellationToken cancellationToken)
     {
-        if (!Import.Variables.cloudServicesEnabled ||
-            !Import.Variables.surfCloudSignedIn ||
-            string.IsNullOrWhiteSpace(Import.Variables.surfCloudAccount))
+        if (!Import.Variables.cloudServicesEnabled)
         {
             return;
         }
 
-        if (Cloud_Manager.DB is null)
+        if (Cloud_Manager.VerifiedSubject is null && !Cloud_Manager.SignedOut &&
+            Environment.GetEnvironmentVariable("SURFCLOUD_TOKEN") is { Length: > 0 } token)
         {
-            Cloud_Manager.InitializeCloud(silent: true);
+            await Cloud_Manager.SignInAsync(token, cancellationToken);
         }
+        if (Cloud_Manager.VerifiedSubject is null) return;
 
-        cancellationToken.ThrowIfCancellationRequested();
-        await Cloud_Manager.RegisterUserHeartbeatAsync(Import.Variables.surfCloudAccount);
+        await Cloud_Manager.RegisterUserHeartbeatAsync(cancellationToken);
     }
 }
 

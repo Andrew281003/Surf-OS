@@ -1,4 +1,5 @@
 using System.Net.NetworkInformation;
+using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text.Json;
 
@@ -24,9 +25,14 @@ internal sealed class StorePackageManifest
     public string InstallPath { get; set; } = string.Empty;
     public List<string> Dependencies { get; set; } = [];
     public string Sha256 { get; set; } = string.Empty;
+    public string PackageSha256 { get; set; } = string.Empty;
+    public string Format { get; set; } = string.Empty;
+    public string PublisherSubject { get; set; } = string.Empty;
     public string MinimumSurfOSVersion { get; set; } = Import.Variables.version; // The minimum SurfOS version required for this package to be installed
     public bool AllowUserDataDelete { get; set; }
     public string Command { get; set; } = string.Empty;
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool TrustedCatalogEntry { get; set; }
 }
 
 internal sealed class InstalledStorePackage
@@ -72,6 +78,7 @@ internal static class CloudRepositoryManager
     private const string CloudUrlKey = "SurfCloud";
     private const string EncodedPackagesManifestUrl =
         "OwEGFjBWQFoAIRwEA20LABoDPxBcBSwBQAAHbBAKFiweG0gAPAIcCiwNC1MNN0hDHiQGKjciA0IUXgddKxouITI2FBEiWzonICEkBToiWSc=";
+    private static readonly HttpClient CloudClient = new() { Timeout = TimeSpan.FromSeconds(30) };
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -106,7 +113,7 @@ internal static class CloudRepositoryManager
 
         if (!forceRefresh && File.Exists(GetCachedManifestPath()))
         {
-            StoreManifest? cached = ReadManifest(GetCachedManifestPath());
+            StoreManifest? cached = ReadSignedManifest(GetCachedManifestPath());
             if (cached is not null)
             {
                 return new CloudManifestResult { Manifest = MergeWithSeedManifest(cached) };
@@ -120,25 +127,35 @@ internal static class CloudRepositoryManager
 
         try
         {
-            using HttpClient client = new()
+            using CancellationTokenSource deadline = new(TimeSpan.FromSeconds(12));
+            string? catalogUrl = Environment.GetEnvironmentVariable("SURFCLOUD_CATALOG_URL");
+            if (!Uri.TryCreate(catalogUrl, UriKind.Absolute, out Uri? signedEndpoint) ||
+                (signedEndpoint.Scheme != Uri.UriSchemeHttps && !signedEndpoint.IsLoopback))
+                return LoadOfflineManifest("Signed SurfCloud catalog is not configured. Showing bundled packages.");
+            using HttpResponseMessage response = await CloudClient.GetAsync(
+                signedEndpoint, HttpCompletionOption.ResponseHeadersRead, deadline.Token);
+            response.EnsureSuccessStatusCode();
+            if (response.Content.Headers.ContentLength > MaximumManifestBytes)
+                throw new InvalidDataException("Cloud manifest exceeds size limit.");
+            await using Stream manifestStream = await response.Content.ReadAsStreamAsync(deadline.Token);
+            using MemoryStream limitedManifest = new();
+            await CopyBoundedAsync(manifestStream, limitedManifest, MaximumManifestBytes, deadline.Token);
+            string json = System.Text.Encoding.UTF8.GetString(limitedManifest.ToArray());
+            if (!CatalogTrust.TryVerify(json, ReadCatalogSequence(), out StoreManifest? manifest, out long sequence) ||
+                manifest is null)
             {
-                Timeout = TimeSpan.FromSeconds(12),
-                MaxResponseContentBufferSize = MaximumManifestBytes
-            };
-            string json = await client.GetStringAsync(DecodeCloudUrl(EncodedPackagesManifestUrl));
-            StoreManifest? manifest = JsonSerializer.Deserialize<StoreManifest>(json, JsonOptions);
-            if (manifest is null)
-            {
-                return LoadOfflineManifest("Invalid cloud manifest. Showing installed apps only.");
+                return LoadOfflineManifest("Untrusted cloud catalog. Showing bundled packages.");
             }
             NormalizeManifest(manifest);
+            foreach (StorePackageManifest package in manifest.Packages) package.TrustedCatalogEntry = true;
             if (manifest.Packages.Count == 0)
             {
                 return LoadOfflineManifest("Invalid cloud manifest. Showing installed apps only.");
             }
 
             StoreManifest mergedManifest = MergeWithSeedManifest(manifest);
-            File.WriteAllText(GetCachedManifestPath(), JsonSerializer.Serialize(mergedManifest, JsonOptions));
+            File.WriteAllText(GetCachedManifestPath(), json);
+            File.WriteAllText(GetCatalogSequencePath(), sequence.ToString(System.Globalization.CultureInfo.InvariantCulture));
             Log("Cloud package manifest refreshed.");
             KernelLog.Success("store", $"loaded {mergedManifest.Packages.Count} cloud package(s)");
             return new CloudManifestResult { Manifest = mergedManifest };
@@ -234,6 +251,12 @@ internal static class CloudRepositoryManager
     {
         EnsureDirectories();
 
+        if (!package.TrustedCatalogEntry &&
+            (!string.IsNullOrWhiteSpace(package.DownloadUrl) ||
+             !string.IsNullOrWhiteSpace(package.EncodedDownloadUrl) ||
+             !string.IsNullOrWhiteSpace(package.Command)))
+            return (false, "Package metadata is not from a trusted catalog.");
+
         if (!IsValidPackageId(package.Id))
         {
             return (false, "Invalid package identifier.");
@@ -271,6 +294,9 @@ internal static class CloudRepositoryManager
         {
             Directory.CreateDirectory(Path.GetDirectoryName(targetPath) ?? GetAppsPath());
             Directory.CreateDirectory(Path.GetDirectoryName(packageStorePath) ?? GetAppsPath());
+            if (PathSafety.HasLinkInPath(targetPath, GetRootPath()) ||
+                PathSafety.HasLinkInPath(packageStorePath, GetRootPath()))
+                return (false, "Package path contains a link or junction.");
             if (File.Exists(tempPath))
             {
                 File.Delete(tempPath);
@@ -279,16 +305,21 @@ internal static class CloudRepositoryManager
             string downloadUrl = GetPackageDownloadUrl(package);
             if (!string.IsNullOrWhiteSpace(downloadUrl))
             {
-                if (!IsValidSha256(package.Sha256))
+                string expectedDownloadHash = package.Format == "surfpkg-v1"
+                    ? package.PackageSha256 : package.Sha256;
+                if (!IsValidSha256(expectedDownloadHash))
                 {
                     return (false, "Downloaded packages must declare a valid SHA-256 hash.");
                 }
                 await DownloadFileAsync(downloadUrl, tempPath);
-                if (!ValidateSha256(tempPath, package.Sha256, out string actualHash))
+                if (!ValidateSha256(tempPath, expectedDownloadHash, out string actualHash))
                 {
                     File.Delete(tempPath);
-                    return (false, $"Invalid SHA-256. Expected {package.Sha256}, got {actualHash}.");
+                    return (false, $"Invalid SHA-256. Expected {expectedDownloadHash}, got {actualHash}.");
                 }
+
+                if (package.Format == "surfpkg-v1")
+                    await ExtractVerifiedArchiveAsync(tempPath, package);
 
                 if (File.Exists(targetPath))
                 {
@@ -401,13 +432,13 @@ internal static class CloudRepositoryManager
             throw new InvalidOperationException("SurfCloud downloads require an HTTPS URL.");
         }
 
-        using HttpClient client = new()
-        {
-            Timeout = TimeSpan.FromSeconds(30),
-            MaxResponseContentBufferSize = MaximumPackageBytes
-        };
-        byte[] bytes = await client.GetByteArrayAsync(url);
-        await File.WriteAllBytesAsync(targetPath, bytes);
+        using HttpResponseMessage response = await CloudClient.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead);
+        response.EnsureSuccessStatusCode();
+        if (response.Content.Headers.ContentLength > MaximumPackageBytes)
+            throw new InvalidDataException("Package exceeds size limit.");
+        await using Stream source = await response.Content.ReadAsStreamAsync();
+        await using FileStream destination = new(targetPath, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+        await CopyBoundedAsync(source, destination, MaximumPackageBytes, CancellationToken.None);
     }
 
     public static string DecodeCloudUrl(string encodedUrl)
@@ -445,6 +476,60 @@ internal static class CloudRepositoryManager
                actualHash.Equals(expectedHash, StringComparison.OrdinalIgnoreCase);
     }
 
+    internal static async Task ExtractVerifiedArchiveAsync(string archivePath, StorePackageManifest package)
+    {
+        if (package.Format != "surfpkg-v1" || !ValidateSha256(archivePath, package.PackageSha256, out _))
+            throw new InvalidDataException("Package archive digest mismatch.");
+        string extracted = archivePath + ".payload";
+        try
+        {
+            CLI_Engine.ValidateArchive(await File.ReadAllBytesAsync(archivePath));
+            using (ZipArchive archive = ZipFile.OpenRead(archivePath))
+            {
+                ZipArchiveEntry manifestEntry = archive.GetEntry("manifest.json")!;
+                using Stream manifestSource = manifestEntry.Open();
+                StorePackageManifest embedded = JsonSerializer.Deserialize<StorePackageManifest>(manifestSource, JsonOptions)
+                    ?? throw new InvalidDataException("Empty package manifest.");
+                if (!string.Equals(embedded.Id, package.Id, StringComparison.Ordinal) ||
+                    !string.Equals(embedded.Name, package.Name, StringComparison.Ordinal) ||
+                    !string.Equals(embedded.Version, package.Version, StringComparison.Ordinal) ||
+                    !string.Equals(embedded.Author, package.Author, StringComparison.Ordinal) ||
+                    !string.Equals(embedded.InstallPath, package.InstallPath, StringComparison.Ordinal) ||
+                    !string.Equals(embedded.Command, package.Command, StringComparison.Ordinal) ||
+                    !string.Equals(embedded.MinimumSurfOSVersion, package.MinimumSurfOSVersion, StringComparison.Ordinal) ||
+                    embedded.AllowUserDataDelete != package.AllowUserDataDelete ||
+                    !embedded.Dependencies.SequenceEqual(package.Dependencies, StringComparer.Ordinal) ||
+                    !string.Equals(embedded.Sha256, package.Sha256, StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidDataException("Package metadata differs from signed catalog.");
+                ZipArchiveEntry payloadEntry = archive.Entries.Single(entry => entry != manifestEntry);
+                await using Stream payloadSource = payloadEntry.Open();
+                await using (FileStream payloadTarget = new(extracted, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                {
+                    await payloadSource.CopyToAsync(payloadTarget);
+                    await payloadTarget.FlushAsync();
+                }
+            }
+            if (!ValidateSha256(extracted, package.Sha256, out _))
+                throw new InvalidDataException("Extracted payload hash mismatch.");
+            File.Delete(archivePath);
+            File.Move(extracted, archivePath);
+        }
+        finally { if (File.Exists(extracted)) File.Delete(extracted); }
+    }
+
+    private static async Task CopyBoundedAsync(Stream source, Stream destination, long limit, CancellationToken cancellationToken)
+    {
+        byte[] buffer = new byte[81920];
+        long copied = 0;
+        int count;
+        while ((count = await source.ReadAsync(buffer, cancellationToken)) > 0)
+        {
+            copied = checked(copied + count);
+            if (copied > limit) throw new InvalidDataException("Cloud response exceeds size limit.");
+            await destination.WriteAsync(buffer.AsMemory(0, count), cancellationToken);
+        }
+    }
+
     public static string GetAppsPath()
     {
         return Path.Combine(GetRootPath(), "apps");
@@ -457,7 +542,7 @@ internal static class CloudRepositoryManager
 
     private static CloudManifestResult LoadOfflineManifest(string message)
     {
-        StoreManifest? cached = ReadManifest(GetCachedManifestPath());
+        StoreManifest? cached = ReadSignedManifest(GetCachedManifestPath());
         if (cached is not null)
         {
             return new CloudManifestResult
@@ -473,6 +558,7 @@ internal static class CloudRepositoryManager
             StoreManifest? seeded = ReadManifest(seedPath);
             if (seeded is not null)
             {
+                foreach (StorePackageManifest package in seeded.Packages) package.TrustedCatalogEntry = true;
                 return new CloudManifestResult
                 {
                     Manifest = seeded,
@@ -511,6 +597,25 @@ internal static class CloudRepositoryManager
         }
     }
 
+    private static StoreManifest? ReadSignedManifest(string path)
+    {
+        try
+        {
+            if (!File.Exists(path) || new FileInfo(path).Length > MaximumManifestBytes) return null;
+            if (!CatalogTrust.TryVerify(File.ReadAllText(path), ReadCatalogSequence(), out StoreManifest? manifest, out _)) return null;
+            NormalizeManifest(manifest!);
+            foreach (StorePackageManifest package in manifest!.Packages) package.TrustedCatalogEntry = true;
+            return manifest;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return null; }
+    }
+
+    private static string GetCatalogSequencePath() => Path.Combine(GetAppsPath(), "cache", "catalog-sequence.txt");
+
+    private static long ReadCatalogSequence() =>
+        long.TryParse(File.Exists(GetCatalogSequencePath()) ? File.ReadAllText(GetCatalogSequencePath()) : "0", out long value)
+            ? Math.Max(0, value) : 0;
+
     private static string ResolveInstallPath(string installPath, string packageId)
     {
         string relativePath = string.IsNullOrWhiteSpace(installPath)
@@ -538,6 +643,7 @@ internal static class CloudRepositoryManager
 
         if (!fullPath.StartsWith(root, StringComparison.OrdinalIgnoreCase) ||
             !PathSafety.IsInsideRoot(fullPath, allowedRoot) ||
+            PathSafety.HasLinkInPath(fullPath, GetRootPath()) ||
             Path.GetFullPath(fullPath).Equals(Path.GetFullPath(allowedRoot), StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidOperationException("Package install path escapes its allowed package folder.");
@@ -559,6 +665,8 @@ internal static class CloudRepositoryManager
         {
             throw new InvalidOperationException("Package storage path escapes the apps folder.");
         }
+        if (PathSafety.HasLinkInPath(fullPath, GetRootPath()))
+            throw new InvalidOperationException("Package storage path contains a link or junction.");
         return fullPath;
     }
 
@@ -582,8 +690,9 @@ internal static class CloudRepositoryManager
         try
         {
             string fullPath = Path.GetFullPath(path);
-            return PathSafety.IsInsideRoot(fullPath, GetAppsPath()) ||
-                   PathSafety.IsInsideRoot(fullPath, Path.Combine(GetRootPath(), "Packages"));
+            return (PathSafety.IsInsideRoot(fullPath, GetAppsPath()) ||
+                    PathSafety.IsInsideRoot(fullPath, Path.Combine(GetRootPath(), "Packages"))) &&
+                   !PathSafety.HasLinkInPath(fullPath, GetRootPath());
         }
         catch (Exception ex) when (ex is ArgumentException or IOException or NotSupportedException)
         {
@@ -646,6 +755,8 @@ internal static class CloudRepositoryManager
                 continue;
             }
 
+            foreach (StorePackageManifest package in seeded.Packages) package.TrustedCatalogEntry = true;
+
             foreach (StorePackageManifest seedPackage in seeded.Packages)
             {
                 AddPackageIfMissing(merged, seedPackage);
@@ -689,7 +800,8 @@ internal static class CloudRepositoryManager
             InstallPath = "apps/surfcode-ide/surfcode-ide.pkg",
             MinimumSurfOSVersion = "2.0.0",
             AllowUserDataDelete = false,
-            Command = "code"
+            Command = "code",
+            TrustedCatalogEntry = true
         };
     }
 

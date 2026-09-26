@@ -8,5 +8,7 @@ namespace SurfOS.Users
         public bool IsAdministrator { get; set; }
         public string PasswordSalt { get; set; }
         public string PasswordVerifier { get; set; }
+        public string AvatarId { get; set; } = "pilot";
+        public System.ConsoleColor ProfileColor { get; set; } = System.ConsoleColor.DarkCyan;
     }
 }

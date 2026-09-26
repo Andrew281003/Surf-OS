@@ -28,7 +28,7 @@ namespace SurfOS.Users
             {
                 if (lines[index].Length == 0 || lines[index][0] == '#') { continue; }
                 string[] fields = lines[index].Split('|');
-                if (fields.Length != 6) { continue; }
+                if (fields.Length < 6) { continue; }
                 int id;
                 if (!int.TryParse(fields[0], out id)) { continue; }
                 UserAccount account = new UserAccount();
@@ -38,6 +38,8 @@ namespace SurfOS.Users
                 account.HomeDirectory = fields[3];
                 account.PasswordSalt = fields[4];
                 account.PasswordVerifier = fields[5];
+                account.AvatarId = fields.Length > 6 && AvatarLibrary.IsValid(fields[6]) ? fields[6] : "pilot";
+                account.ProfileColor = fields.Length > 7 ? ProfileColors.Normalize(fields[7]) : ProfileColors.Default;
                 _accounts.Add(account);
             }
             if (_accounts.Count == 0)
@@ -98,6 +100,23 @@ namespace SurfOS.Users
             return null;
         }
 
+        public IReadOnlyList<UserAccount> Accounts { get { return _accounts.AsReadOnly(); } }
+
+        public void SetProfile(UserAccount account, string avatarId, ConsoleColor color)
+        {
+            if (account == null || !_accounts.Contains(account)) throw new InvalidOperationException("Unknown account.");
+            if (!AvatarLibrary.IsValid(avatarId)) throw new InvalidOperationException("Unknown avatar.");
+            bool allowed = false;
+            for (int i = 0; i < ProfileColors.Choices.Length; i++) if (ProfileColors.Choices[i] == color) allowed = true;
+            if (!allowed) throw new InvalidOperationException("Unsupported profile color.");
+            string oldAvatar = account.AvatarId;
+            ConsoleColor oldColor = account.ProfileColor;
+            account.AvatarId = avatarId;
+            account.ProfileColor = color;
+            try { Save(); }
+            catch { account.AvatarId = oldAvatar; account.ProfileColor = oldColor; throw; }
+        }
+
         public bool Authenticate(string username, string password, out UserAccount account)
         {
             account = Find(username);
@@ -106,14 +125,14 @@ namespace SurfOS.Users
 
         private void Save()
         {
-            string text = "# SurfOS user database v1 - password verifiers only\r\n";
+            string text = "# SurfOS user database v2 - password verifiers and profile choices\r\n";
             for (int index = 0; index < _accounts.Count; index++)
             {
                 UserAccount account = _accounts[index];
                 text += account.Id + "|" + account.Username + "|" +
                         (account.IsAdministrator ? "admin" : "user") + "|" +
                         account.HomeDirectory + "|" + account.PasswordSalt + "|" +
-                        account.PasswordVerifier + "\r\n";
+                        account.PasswordVerifier + "|" + account.AvatarId + "|" + account.ProfileColor + "\r\n";
             }
             _fileSystem.WriteAllText(DatabasePath, text);
         }

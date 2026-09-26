@@ -7,7 +7,7 @@ param(
 )
 
 $qemuDirectory = 'C:\Program Files\qemu'
-$qemu = Join-Path $qemuDirectory 'qemu-system-i386.exe'
+$qemu = Join-Path $qemuDirectory 'qemu-system-x86_64.exe'
 $qemuImg = Join-Path $qemuDirectory 'qemu-img.exe'
 if (!(Test-Path -LiteralPath $qemu) -or !(Test-Path -LiteralPath $qemuImg)) {
     throw 'QEMU was not found under C:\Program Files\qemu.'
@@ -17,7 +17,7 @@ if (!$SkipBuild) {
     & (Join-Path $PSScriptRoot 'Build-SurfOS-Cosmos.ps1')
 }
 
-$iso = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\src\SurfOS.Cosmos\bin\cosmos\cosmos\Debug\net6.0\SurfOS.iso'))
+$iso = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\src\SurfOS.Cosmos\bin\Debug\net10.0\win-x64\cosmos\SurfOS.iso'))
 if (!(Test-Path -LiteralPath $iso)) { throw "SurfOS ISO not found: $iso" }
 
 $disk = [System.IO.Path]::GetFullPath($DiskPath)

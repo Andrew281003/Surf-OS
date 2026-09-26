@@ -23,7 +23,13 @@ internal partial class CLI_Engine
 
         if (options is ["--open", var requestedName])
         {
-            OpenInstalledApp(requestedName, ref isRunning, isScriptExecution);
+            OpenInstalledApp(requestedName, false, ref isRunning, isScriptExecution);
+            return;
+        }
+
+        if (options is ["--open", var approvedName, "--allow-third-party"])
+        {
+            OpenInstalledApp(approvedName, true, ref isRunning, isScriptExecution);
             return;
         }
 
@@ -60,6 +66,7 @@ internal partial class CLI_Engine
 
     private static void OpenInstalledApp(
         string requestedName,
+        bool allowThirdParty,
         ref bool isRunning,
         bool isScriptExecution)
     {
@@ -78,6 +85,14 @@ internal partial class CLI_Engine
             launchCommand[0].Equals("app", StringComparison.OrdinalIgnoreCase))
         {
             ShellError($"app: '{app.Name}' does not define a valid launch command.");
+            return;
+        }
+
+        bool trustedBuiltIn = app.Id.Equals("surfcode-ide", StringComparison.Ordinal) &&
+            app.Command.Equals("code", StringComparison.Ordinal);
+        if (!trustedBuiltIn && !allowThirdParty)
+        {
+            ShellError($"app: '{app.Name}' is third-party code. To run it with your SurfOS permissions, use app --open \"{app.Id}\" --allow-third-party.");
             return;
         }
 

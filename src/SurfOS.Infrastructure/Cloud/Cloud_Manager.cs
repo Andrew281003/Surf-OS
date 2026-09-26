@@ -1,123 +1,109 @@
-﻿using System;
-using System.IO;
-using System.Threading.Tasks;
-using System.Collections.Generic;
-using Google.Cloud.Firestore;
+using System.Net.Http.Headers;
+using System.Text.Json;
 
-namespace SurfOS2
+namespace SurfOS2;
+
+/// <summary>Unprivileged client for the narrow SurfCloud presence API.</summary>
+internal static class Cloud_Manager
 {
-    internal class Cloud_Manager
+    private static readonly HttpClient Client = new() { Timeout = TimeSpan.FromSeconds(10) };
+    private static readonly SemaphoreSlim SessionLock = new(1, 1);
+    private static readonly object SessionStateLock = new();
+    private static string? _token;
+    private static string? _subject;
+    private static bool _signedOut;
+    private static int _sessionGeneration;
+
+    public static string? VerifiedSubject => _subject;
+    public static bool SignedOut => _signedOut;
+
+    internal static string? GetVerifiedSessionToken()
     {
-        private static FirestoreDb? _db;
-        private const string ProjectId = "surfos-5b9af";
+        lock (SessionStateLock) return _subject is null ? null : _token;
+    }
 
-        public static void StartInBackground()
+    public static async Task<bool> SignInAsync(string idToken, CancellationToken cancellationToken)
+    {
+        if (!TryGetEndpoint(out Uri? endpoint) || string.IsNullOrWhiteSpace(idToken)) return false;
+        await SessionLock.WaitAsync(cancellationToken);
+        try
         {
-            _ = Task.Run(async () =>
+            int generation;
+            lock (SessionStateLock)
             {
-                InitializeCloud();
-                if (_db is null)
-                {
-                    return;
-                }
-
-                try
-                {
-                    await _db.Collection("test_pings")
-                        .Document(Environment.MachineName)
-                        .SetAsync(new
-                        {
-                            Timestamp = DateTime.UtcNow,
-                            Status = "Online"
-                        });
-                }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine($"[Cloud Startup Error]: {ex.Message}");
-                }
-            });
+                generation = _sessionGeneration;
+                ClearSession();
+            }
+            using HttpRequestMessage request = new(HttpMethod.Get, new Uri(endpoint!, "session"));
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", idToken);
+            using HttpResponseMessage response = await Client.SendAsync(request, cancellationToken);
+            if (!response.IsSuccessStatusCode) return false;
+            await using Stream stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+            using JsonDocument body = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
+            string? subject = body.RootElement.GetProperty("subject").GetString();
+            if (string.IsNullOrWhiteSpace(subject)) return false;
+            lock (SessionStateLock)
+            {
+                if (_sessionGeneration != generation) return false;
+                _token = idToken;
+                _subject = subject;
+                _signedOut = false;
+            }
+            return true;
         }
-
-        /// <summary>
-        /// Initializes the global connection loop to Firestore using the local key file.
-        /// </summary>
-        public static void InitializeCloud(bool silent = false)
+        catch (Exception ex) when (ex is HttpRequestException or JsonException or TaskCanceledException or KeyNotFoundException or InvalidOperationException)
         {
-            try
-            {
-                // Credentials must be configured outside the application directory.
-                // Bundling a service-account key in a desktop build exposes it to every recipient.
-                string? keyPath = Environment.GetEnvironmentVariable("GOOGLE_APPLICATION_CREDENTIALS");
-
-                if (string.IsNullOrWhiteSpace(keyPath) || !File.Exists(keyPath))
-                {
-                    if (!silent)
-                    {
-                        Console.ForegroundColor = ConsoleColor.Red;
-                        Console.WriteLine("SurfCloud credentials are not configured.");
-                        Console.WriteLine("Set GOOGLE_APPLICATION_CREDENTIALS to an external credential file.");
-                        Console.ResetColor();
-                    }
-                    return;
-                }
-
-                // The Google SDK reads the already-configured external credential path.
-                _db = FirestoreDb.Create(ProjectId);
-            }
-            catch (Exception ex)
-            {
-                if (!silent)
-                {
-                    Console.ForegroundColor = ConsoleColor.Red;
-                    Console.WriteLine($"🚨 Cloud Initialization failed: {ex.Message}");
-                    Console.ResetColor();
-                }
-                else
-                {
-                    System.Diagnostics.Debug.WriteLine($"[Cloud Initialization Error]: {ex.Message}");
-                }
-            }
+            lock (SessionStateLock) ClearSession();
+            return false;
         }
+        finally { SessionLock.Release(); }
+    }
 
-        /// <summary>
-        /// Updates the user's active cloud document with a live timestamp to signal they are online.
-        /// </summary>
-        public static async Task RegisterUserHeartbeatAsync(string username)
+    public static void SignOut()
+    {
+        lock (SessionStateLock)
         {
-            if (_db == null) return;
-
-            try
-            {
-                // Reference path following our architectural schema: artifacts -> surfos-app-id -> users -> unique_user
-                DocumentReference userDocRef = _db
-                    .Collection("artifacts")
-                    .Document("surfos-app-id")
-                    .Collection("users")
-                    .Document($"userId_{username}");
-
-                // Create a data payload with the current universal timestamp
-                Dictionary<string, object> presenceData = new()
-                {
-                    { "username", username },
-                    { "lastSeen", DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss") }
-                };
-
-                // Write the document asynchronously to the cloud (creates or overwrites)
-                await userDocRef.SetAsync(presenceData, SetOptions.MergeAll);
-            }
-            catch (Exception ex)
-            {
-                // Silently handle network hiccup logs so it doesn't interrupt the TUI experience
-                System.Diagnostics.Debug.WriteLine($"[Cloud Presence Error]: {ex.Message}");
-            }
+            _sessionGeneration++;
+            _signedOut = true;
+            ClearSession();
         }
+    }
 
-        /// <summary>
-        /// Global property accessor to execute database transactions across adjacent apps
-        /// </summary>
-        public static FirestoreDb? DB
+    private static void ClearSession()
+    {
+        _token = null;
+        _subject = null;
+        Import.Variables.surfCloudSignedIn = false;
+        Import.Variables.surfCloudAccount = string.Empty;
+    }
+
+    public static async Task RegisterUserHeartbeatAsync(CancellationToken cancellationToken)
+    {
+        string? token = _token;
+        if (token is null || _subject is null || !TryGetEndpoint(out Uri? endpoint)) return;
+        try
         {
-            get { return _db; }
+            using HttpRequestMessage request = new(HttpMethod.Post, new Uri(endpoint!, "presence"));
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            using HttpResponseMessage response = await Client.SendAsync(request, cancellationToken);
+            if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized) SignOut();
         }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            // Offline presence is omitted; the server never receives a locally asserted identity.
+        }
+    }
+
+    private static bool TryGetEndpoint(out Uri? endpoint)
+    {
+        string? configured = Environment.GetEnvironmentVariable("SURFCLOUD_API_URL");
+        if (Uri.TryCreate(configured, UriKind.Absolute, out endpoint) &&
+            (endpoint.Scheme == Uri.UriSchemeHttps || endpoint.IsLoopback))
+        {
+            endpoint = new Uri(endpoint.AbsoluteUri.TrimEnd('/') + "/");
+            return true;
+        }
+        endpoint = null;
+        return false;
     }
 }

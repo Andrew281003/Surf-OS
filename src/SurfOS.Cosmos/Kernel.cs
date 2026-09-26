@@ -1,7 +1,7 @@
 using System;
 using SurfOS.Boot;
 using SurfOS.Runtime;
-using Sys = Cosmos.System;
+using Sys = Cosmos.Kernel.System;
 
 namespace SurfOS
 {
@@ -26,7 +26,7 @@ namespace SurfOS
         {
             if (_runtime == null)
             {
-                Cosmos.Core.CPU.Halt();
+                Sys.Power.Halt();
                 return;
             }
 

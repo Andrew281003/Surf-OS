@@ -49,6 +49,7 @@ internal partial class CLI_Engine
         ["sandbox"] = ("sandbox create <name>|list|run <name>|delete <name> --force", "Manage local staging folders. Enforced execution isolation is unavailable."),
         ["validate"] = ("validate <builder-project-id|package>", "Validate a builder project or a SurfOS .surfpkg archive without executing it."),
         ["publish"] = ("publish <builder-project|package.surfpkg> [--public|--private]", "Validate and upload an app to the configured SurfCloud publisher. Private is the default."),
+        ["surfcloud"] = ("surfcloud status|signin|signout", "Manage the verified SurfCloud session. signin reads SURFCLOUD_TOKEN from the process environment."),
         ["sign"] = ("sign <package> | sign verify <package>", "Create or verify a detached RSA-SHA256 signature using a local signing key.")
     };
 
@@ -78,6 +79,23 @@ internal partial class CLI_Engine
         {
             switch (command)
             {
+                case "surfcloud":
+                    Require(args.Length == 1 && args[0] is "status" or "signin" or "signout", usage);
+                    if (args[0] == "signout")
+                    {
+                        Cloud_Manager.SignOut();
+                        Console.WriteLine("SurfCloud signed out. Private session state cleared.");
+                    }
+                    else if (args[0] == "status")
+                        Console.WriteLine(Cloud_Manager.VerifiedSubject is null ? "SurfCloud: signed out or offline." : "SurfCloud: verified session active.");
+                    else
+                    {
+                        string? idToken = Environment.GetEnvironmentVariable("SURFCLOUD_TOKEN");
+                        bool signedIn = !string.IsNullOrWhiteSpace(idToken) &&
+                            Cloud_Manager.SignInAsync(idToken, CancellationToken.None).GetAwaiter().GetResult();
+                        Console.WriteLine(signedIn ? "SurfCloud identity verified." : "SurfCloud sign-in unavailable or token rejected.");
+                    }
+                    break;
                 case "history":
                     Require(args.Length == 0 || args is ["clear"], usage);
                     if (args.Length > 0) History.Clear();
