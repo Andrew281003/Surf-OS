@@ -12,6 +12,6 @@
     <Compile Include="../SurfCloud.DrivePublisher/DriveCleanup.cs" Link="DriveCleanup.cs" />
     <Compile Include="../SurfCloud.DrivePublisher/HttpRetry.cs" Link="HttpRetry.cs" />
     <Compile Include="../SurfCloud.DrivePublisher/CatalogSigning.cs" Link="CatalogSigning.cs" />
-    <Compile Include="../SurfOS.Infrastructure/Cloud/CatalogTrust.cs" Link="CatalogTrust.cs" />
   </ItemGroup>
 </Project>
+
